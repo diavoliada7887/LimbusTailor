@@ -23,14 +23,17 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p patches
-          cat \
+          : > patches/0006-hard-page-boundary-and-output-ui.patch
+          for f in \
             .migration/0006.part01 \
             .migration/0006.part02 \
             .migration/0006.part03 \
             .migration/0006.part04 \
             .migration/0006.part05 \
-            .migration/0006.part06 \
-            > patches/0006-hard-page-boundary-and-output-ui.patch
+            .migration/0006.part06; do
+            cat "$f" >> patches/0006-hard-page-boundary-and-output-ui.patch
+            printf '\n' >> patches/0006-hard-page-boundary-and-output-ui.patch
+          done
 
           actual="$(git hash-object patches/0006-hard-page-boundary-and-output-ui.patch)"
           expected="da234cc19a0944f6e460c7228d3cbbfde70729e4"
