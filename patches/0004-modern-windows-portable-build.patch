@@ -1,0 +1,106 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 34d7671..cfdd88e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -97,6 +97,7 @@ GET_FILENAME_COMPONENT(source_outer_dir "${PROJECT_SOURCE_DIR}/.." ABSOLUTE)
+ GET_FILENAME_COMPONENT(build_outer_dir "${PROJECT_BINARY_DIR}/.." ABSOLUTE)
+ 
+ SET(STAGING_LIBS_DIR "")
++OPTION(ARCHIVE_PORTABLE_WINDOWS "Use modern prebuilt dependencies and skip legacy Windows installer packaging" OFF)
+ 
+ 
+ INCLUDE(FindOpenGL)
+@@ -107,7 +108,7 @@ IF(OPENGL_FOUND AND QT_QTOPENGL_FOUND)
+ ENDIF()
+ OPTION(ENABLE_OPENGL "OpenGL may be used for UI acceleration" ${use_opengl})
+ 
+-IF(WIN32)
++IF(WIN32 AND NOT ARCHIVE_PORTABLE_WINDOWS)
+         FIND_PATH(
+                 DEPS_BUILD_DIR build-qt.bat
+                 HINTS "${build_outer_dir}/scantailor-universal-deps-build"
+@@ -163,6 +164,10 @@ IF(WIN32)
+         ENDIF()
+ ENDIF()
+ 
++IF(WIN32 AND ARCHIVE_PORTABLE_WINDOWS)
++        SET(Boost_USE_STATIC_LIBS OFF)
++ENDIF()
++
+ SET(CMAKE_AUTOMOC ON)
+ SET(Qt_MIN_VERSION 5.7.0)
+ IF(APPLE)
+@@ -357,14 +362,20 @@ IF(WIN32)
+ ENDIF()
+ 
+ 
+-IF(WIN32)
++IF(WIN32 AND NOT ARCHIVE_PORTABLE_WINDOWS)
+         SET(Boost_USE_STATIC_LIBS ON)
++ELSEIF(WIN32 AND ARCHIVE_PORTABLE_WINDOWS)
++        SET(Boost_USE_STATIC_LIBS OFF)
+ ELSE(WIN32)
+         ADD_DEFINITIONS(-DBOOST_TEST_DYN_LINK)
+ ENDIF(WIN32)
+ 
+ SET(Boost_USE_MULTITHREADED ON)
+-FIND_PACKAGE(Boost 1.35.0 COMPONENTS unit_test_framework prg_exec_monitor)
++IF(WIN32 AND ARCHIVE_PORTABLE_WINDOWS)
++        FIND_PACKAGE(Boost 1.35.0)
++ELSE()
++        FIND_PACKAGE(Boost 1.35.0 COMPONENTS unit_test_framework prg_exec_monitor)
++ENDIF()
+ IF(NOT Boost_FOUND)
+         MESSAGE(
+                 FATAL_ERROR
+@@ -494,7 +505,7 @@ SET(
+ )
+ INCLUDE(CPack)
+ 
+-IF(WIN32)
++IF(WIN32 AND NOT ARCHIVE_PORTABLE_WINDOWS)
+         # Copy some DLLs to the staging dir.
+ 
+         SET(
+diff --git a/src/core/CMakeLists.txt b/src/core/CMakeLists.txt
+index 2008cb1..3d05ba2 100644
+--- a/src/core/CMakeLists.txt
++++ b/src/core/CMakeLists.txt
+@@ -10,7 +10,9 @@ INCLUDE_DIRECTORIES("${core_ui_sources_BINARY_DIR}")
+ 
+ ADD_SUBDIRECTORY(interaction)
+ ADD_SUBDIRECTORY(zones)
+-ADD_SUBDIRECTORY(tests)
++IF(NOT (WIN32 AND ARCHIVE_PORTABLE_WINDOWS))
++    ADD_SUBDIRECTORY(tests)
++ENDIF()
+ 
+ ADD_SUBDIRECTORY(filters/fix_orientation)
+ ADD_SUBDIRECTORY(filters/page_split)
+diff --git a/src/imageproc/CMakeLists.txt b/src/imageproc/CMakeLists.txt
+index 6f72617..1ac4b9c 100644
+--- a/src/imageproc/CMakeLists.txt
++++ b/src/imageproc/CMakeLists.txt
+@@ -54,4 +54,6 @@ SOURCE_GROUP(Sources FILES ${sources})
+ 
+ ADD_LIBRARY(imageproc STATIC ${sources})
+ QT5_USE_MODULES(imageproc Core Gui)
+-ADD_SUBDIRECTORY(tests)
++IF(NOT (WIN32 AND ARCHIVE_PORTABLE_WINDOWS))
++    ADD_SUBDIRECTORY(tests)
++ENDIF()
+diff --git a/src/math/CMakeLists.txt b/src/math/CMakeLists.txt
+index 77caba9..8369cd5 100644
+--- a/src/math/CMakeLists.txt
++++ b/src/math/CMakeLists.txt
+@@ -45,6 +45,8 @@ SOURCE_GROUP("Sources\\Differentiation Framework" FILES ${ADIFF_SOURCES})
+ 
+ ADD_LIBRARY(math STATIC ${GENERIC_SOURCES} ${SPFIT_SOURCES} ${ADIFF_SOURCES})
+ QT5_USE_MODULES(math Core)
+-ADD_SUBDIRECTORY(spfit/tests)
+-ADD_SUBDIRECTORY(adiff/tests)
++IF(NOT (WIN32 AND ARCHIVE_PORTABLE_WINDOWS))
++    ADD_SUBDIRECTORY(spfit/tests)
++    ADD_SUBDIRECTORY(adiff/tests)
++ENDIF()
+ 
