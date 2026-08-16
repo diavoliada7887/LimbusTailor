@@ -1,0 +1,200 @@
+diff --git a/src/core/filters/output/OptionsWidget.cpp b/src/core/filters/output/OptionsWidget.cpp
+index 46f19e0..1e8d0b3 100644
+--- a/src/core/filters/output/OptionsWidget.cpp
++++ b/src/core/filters/output/OptionsWidget.cpp
+@@ -63,6 +63,37 @@ OptionsWidget::OptionsWidget(
+ {
+     setupUi(this);
+ 
++    // ScanTailor Archive: final format belongs to the Output stage.
++    QSettings archiveSettings;
++    archiveOutputFormat->addItem(QStringLiteral("TIFF"));
++    archiveOutputFormat->addItem(QStringLiteral("JPEG"));
++    archiveOutputFormat->addItem(QStringLiteral("PNG"));
++    const QString archiveFormat = archiveSettings.value(
++        _key_output_image_format, _key_output_image_format_def
++    ).toString().toUpper();
++    const int archiveFormatIndex = archiveOutputFormat->findText(archiveFormat);
++    archiveOutputFormat->setCurrentIndex(archiveFormatIndex >= 0 ? archiveFormatIndex : 0);
++    archiveJpegQuality->setValue(archiveSettings.value(
++        _key_output_jpeg_quality, _key_output_jpeg_quality_def
++    ).toInt());
++    archiveJpegQuality->setEnabled(
++        archiveOutputFormat->currentText() == QLatin1String("JPEG")
++    );
++
++    connect(archiveOutputFormat, &QComboBox::currentTextChanged, this, [](QString const& format) {
++        QSettings settings;
++        settings.setValue(_key_output_image_format, format.toUpper());
++        GlobalStaticSettings::updateSettings();
++    });
++    connect(archiveOutputFormat, &QComboBox::currentTextChanged, this, [this](QString const& format) {
++        archiveJpegQuality->setEnabled(format == QLatin1String("JPEG"));
++    });
++    connect(archiveJpegQuality, QOverload<int>::of(&QSpinBox::valueChanged), this, [](int quality) {
++        QSettings settings;
++        settings.setValue(_key_output_jpeg_quality, quality);
++        GlobalStaticSettings::updateSettings();
++    });
++
+     setDespeckleLevel(DESPECKLE_NORMAL);
+ 
+     depthPerceptionSlider->setMinimum(qRound(DepthPerception::minValue() * 10));
+diff --git a/src/core/filters/output/OutputGenerator.cpp b/src/core/filters/output/OutputGenerator.cpp
+index 25f3e23..9126f4e 100644
+--- a/src/core/filters/output/OutputGenerator.cpp
++++ b/src/core/filters/output/OutputGenerator.cpp
+@@ -62,6 +62,7 @@
+ #include "imageproc/ConnectivityMap.h"
+ #include "imageproc/InfluenceMap.h"
+ #include "config.h"
++#include "settings/ini_keys.h"
+ #include "settings/globalstaticsettings.h"
+ #ifdef HAVE_EXIV2
+ #include "ImageMetadataCopier.h"
+@@ -84,6 +85,7 @@
+ #include <QBrush>
+ #include <QtGlobal>
+ #include <QDebug>
++#include <QSettings>
+ #include <Qt>
+ #include <vector>
+ #include <memory>
+@@ -665,6 +667,12 @@ OutputGenerator::processWithoutDewarping(TaskStatus const& status, FilterData co
+                                         ) const
+ {
+     RenderParams const render_params(m_colorParams);
++    QSettings archiveSettings;
++    const QString marginFillName = archiveSettings.value(
++        _key_margins_fill_color, _key_margins_fill_color_def
++    ).toString().toUpper();
++    const bool blackMargins = marginFillName == QLatin1String("BLACK");
++
+     const bool suppress_smoothing = GlobalStaticSettings::m_disable_bw_smoothing &&
+                                     (m_colorParams.colorMode() == ColorParams::BLACK_AND_WHITE);
+ 
+@@ -746,7 +754,7 @@ OutputGenerator::processWithoutDewarping(TaskStatus const& status, FilterData co
+     status.throwIfCancelled();
+ 
+     if (render_params.binaryOutput() || m_outRect.isEmpty()) {
+-        BinaryImage dst(m_outRect.size().expandedTo(QSize(1, 1)), WHITE);
++        BinaryImage dst(m_outRect.size().expandedTo(QSize(1, 1)), blackMargins ? BLACK : WHITE);
+ 
+         if (!m_contentRect.isEmpty()) {
+             BinaryImage bw_content(
+@@ -1031,11 +1039,11 @@ OutputGenerator::processWithoutDewarping(TaskStatus const& status, FilterData co
+     if (maybe_normalized.format() == QImage::Format_Indexed8) {
+         dst.setColorTable(createGrayscalePalette());
+         // White.  0xff is reserved if in "Color / Grayscale" mode.
+-        uint8_t const color = render_params.mixedOutput() ? 0xff : 0xfe;
++        uint8_t const color = blackMargins ? 0x00 : (render_params.mixedOutput() ? 0xff : 0xfe);
+         dst.fill(color);
+     } else {
+         // White.  0x[ff]ffffff is reserved if in "Color / Grayscale" mode.
+-        uint32_t const color = render_params.mixedOutput() ? 0xffffffff : 0xfffefefe;
++        uint32_t const color = blackMargins ? 0xff000000 : (render_params.mixedOutput() ? 0xffffffff : 0xfffefefe);
+         dst.fill(color);
+     }
+ 
+@@ -1074,6 +1082,13 @@ OutputGenerator::processWithDewarping(TaskStatus const& status, FilterData const
+     }
+ 
+     RenderParams const render_params(m_colorParams);
++    QSettings archiveSettings;
++    const QString marginFillName = archiveSettings.value(
++        _key_margins_fill_color, _key_margins_fill_color_def
++    ).toString().toUpper();
++    const QColor marginFillColor = marginFillName == QLatin1String("BLACK")
++        ? QColor(Qt::black) : QColor(Qt::white);
++
+     const bool suppress_smoothing = GlobalStaticSettings::m_disable_bw_smoothing &&
+                                     (m_colorParams.colorMode() == ColorParams::BLACK_AND_WHITE);
+ 
+@@ -1544,17 +1559,17 @@ OutputGenerator::processWithDewarping(TaskStatus const& status, FilterData const
+     warped_gray_output = GrayImage(); // Save memory.
+ 
+     if (render_params.whiteMargins()) {
+-        // Fill everything except the content area in normalized_original to white.
++        // Fill everything except the content area with the selected layout margin color.
+         QPolygonF const orig_content_poly(m_xform.transformBack().map(QRectF(m_contentRect)));
+-        fillMarginsInPlace(normalized_original, orig_content_poly, Qt::white);
++        fillMarginsInPlace(normalized_original, orig_content_poly, marginFillColor);
+         if (dbg) {
+-            dbg->add(normalized_original, "white margins");
++            dbg->add(normalized_original, "layout margins");
+         }
+     }
+ 
+     status.throwIfCancelled();
+ 
+-    QColor bg_color(Qt::white);
++    QColor bg_color(marginFillColor);
+     if (!render_params.whiteMargins()) {
+         uint8_t const dominant_gray = reserveBlackAndWhite<uint8_t>(
+                                           calcDominantBackgroundGrayLevel(input.grayImage())
+diff --git a/src/core/filters/output/OutputImageParams.cpp b/src/core/filters/output/OutputImageParams.cpp
+index 54578ab..743d124 100644
+--- a/src/core/filters/output/OutputImageParams.cpp
++++ b/src/core/filters/output/OutputImageParams.cpp
+@@ -36,7 +36,8 @@ OutputImageParams::OutputImageParams(QSize const& out_image_size, QRect const& c
+     dewarping::DistortionModel const& distortion_model,
+     DepthPerception const& depth_perception,
+     DespeckleLevel const despeckle_level,
+-    QString const&TiffCompression)
++    QString const&TiffCompression,
++    QString const& archiveMarginFill)
+     :   m_size(out_image_size),
+         m_contentRect(content_rect),
+         m_dpi(dpi),
+@@ -45,7 +46,8 @@ OutputImageParams::OutputImageParams(QSize const& out_image_size, QRect const& c
+         m_depthPerception(depth_perception),
+         m_dewarpingMode(dewarping_mode),
+         m_despeckleLevel(despeckle_level),
+-        m_TiffCompression(TiffCompression)
++        m_TiffCompression(TiffCompression),
++        m_archiveMarginFill(archiveMarginFill)
+ {
+     // For historical reasons, we disregard post-cropping and post-scaling here.
+     xform.setPostCropArea(QPolygonF()); // Resets post-scale as well.
+@@ -61,7 +63,8 @@ OutputImageParams::OutputImageParams(QDomElement const& el)
+         m_depthPerception(el.attribute("depthPerception")),
+         m_dewarpingMode(el.attribute("dewarpingMode")),
+         m_despeckleLevel(despeckleLevelFromString(el.attribute("despeckleLevel"))),
+-        m_TiffCompression(el.attribute("tiff-compression"))
++        m_TiffCompression(el.attribute("tiff-compression")),
++        m_archiveMarginFill(el.attribute("archive-margin-fill", "WHITE"))
+ {
+ }
+ 
+@@ -81,6 +84,7 @@ OutputImageParams::toXml(QDomDocument& doc, QString const& name) const
+     el.setAttribute("dewarpingMode", m_dewarpingMode.toString());
+     el.setAttribute("despeckleLevel", despeckleLevelToString(m_despeckleLevel));
+     el.setAttribute("tiff-compression", m_TiffCompression);
++    el.setAttribute("archive-margin-fill", m_archiveMarginFill);
+ 
+     return el;
+ }
+@@ -108,6 +112,10 @@ OutputImageParams::matches(OutputImageParams const& other) const
+         return false;
+     }
+ 
++    if (m_archiveMarginFill != other.m_archiveMarginFill) {
++        return false;
++    }
++
+     if (!colorParamsMatch(m_colorParams, m_despeckleLevel,
+                           other.m_colorParams, other.m_despeckleLevel)) {
+         return false;
+diff --git a/src/core/filters/output/OutputImageParams.h b/src/core/filters/output/OutputImageParams.h
+index 2ba0249..9f02cb7 100644
+--- a/src/core/filters/output/OutputImageParams.h
++++ b/src/core/filters/output/OutputImageParams.h
+@@ -50,7 +50,8 @@ public:
+                       dewarping::DistortionModel const& distortion_model,
+                       DepthPerception const& depth_perception,
+                       DespeckleLevel despeckle_level,
+-                      QString const& TiffCompression);
++                      QString const& TiffCompression,
++                      QString const& archiveMarginFill);
+ 
+     explicit OutputImageParams(QDomElement const& el);
