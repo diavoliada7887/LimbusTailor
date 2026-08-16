@@ -1,0 +1,122 @@
+name: LimbusTailor Windows portable
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'work/**'
+    paths:
+      - 'patches/**'
+      - '.github/workflows/limbustailor-windows.yml'
+  pull_request:
+    paths:
+      - 'patches/**'
+      - '.github/workflows/limbustailor-windows.yml'
+
+jobs:
+  windows-portable:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout LimbusTailor
+        uses: actions/checkout@v4
+
+      - name: Fetch ScanTailor Universal 0.2.13
+        shell: bash
+        run: |
+          git clone --branch 0.2.13 --depth 1 --recurse-submodules \
+            https://github.com/trufanov-nok/scantailor-universal.git scantailor-universal
+
+      - name: Apply LimbusTailor patches
+        working-directory: scantailor-universal
+        shell: bash
+        run: |
+          for p in ../patches/0001-output-formats.patch \
+                   ../patches/0002-content-padding-mm.patch \
+                   ../patches/0003-sparse-page-protection.patch \
+                   ../patches/0004-modern-windows-portable-build.patch \
+                   ../patches/0005-modern-exiv2-windows.patch \
+                   ../patches/0006-hard-page-boundary-and-output-ui.patch; do
+            git apply --check "$p"
+            git apply "$p"
+          done
+
+      - name: Install Qt 5.15.2
+        shell: pwsh
+        run: |
+          py -m pip install --disable-pip-version-check aqtinstall
+          py -m aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 -O C:\Qt
+
+      - name: Install native libraries with vcpkg
+        shell: pwsh
+        run: |
+          & C:\vcpkg\vcpkg.exe install --triplet x64-windows `
+            libjpeg-turbo zlib libpng tiff exiv2 `
+            boost-intrusive boost-multi-index boost-iterator boost-mpl `
+            boost-function boost-smart-ptr boost-type-traits boost-array boost-bind
+
+      - name: Prepare compatibility dependency directory
+        shell: pwsh
+        run: |
+          $deps = Join-Path $env:GITHUB_WORKSPACE 'scantailor-universal-deps-build'
+          New-Item -ItemType Directory -Force -Path (Join-Path $deps 'staging\libs') | Out-Null
+          New-Item -ItemType File -Force -Path (Join-Path $deps 'build-qt.bat') | Out-Null
+          Copy-Item 'C:\vcpkg\installed\x64-windows\lib\*.lib' (Join-Path $deps 'staging\libs') -Force
+          $exports = @"
+          SET(JPEG_DIR "C:/vcpkg/installed/x64-windows/include")
+          SET(ZLIB_DIR "C:/vcpkg/installed/x64-windows/include")
+          SET(PNG_DIR "C:/vcpkg/installed/x64-windows/include")
+          SET(TIFF_DIR "C:/vcpkg/installed/x64-windows/include")
+          SET(JPEG2000_DIR "")
+          SET(EXIV2_DIR "C:/vcpkg/installed/x64-windows")
+          SET(BOOST_ROOT "C:/vcpkg/installed/x64-windows")
+          SET(QT_SRC_DIR "")
+          SET(QT_PREBUILT_DIR "C:/Qt/5.15.2/msvc2019_64")
+          "@
+          Set-Content -Path (Join-Path $deps 'export-vars.cmake') -Value $exports
+
+      - name: Configure portable Windows build
+        shell: pwsh
+        run: |
+          cmake -S scantailor-universal -B scantailor-build -A x64 `
+            -DARCHIVE_PORTABLE_WINDOWS=ON `
+            -DENABLE_OPENGL=OFF `
+            -DENABLE_OPENJPEG=OFF `
+            -DCMAKE_PREFIX_PATH='C:/Qt/5.15.2/msvc2019_64;C:/vcpkg/installed/x64-windows' `
+            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `
+            -DBOOST_INCLUDEDIR=C:/vcpkg/installed/x64-windows/include `
+            -DJPEG_INCLUDE_DIR=C:/vcpkg/installed/x64-windows/include `
+            -DJPEG_LIBRARY=C:/vcpkg/installed/x64-windows/lib/jpeg.lib `
+            -DZLIB_INCLUDE_DIR=C:/vcpkg/installed/x64-windows/include `
+            -DZLIB_LIBRARY=C:/vcpkg/installed/x64-windows/lib/z.lib `
+            -DPNG_INCLUDE_DIR=C:/vcpkg/installed/x64-windows/include `
+            -DPNG_LIBRARY=C:/vcpkg/installed/x64-windows/lib/libpng16.lib `
+            -DTIFF_INCLUDE_DIR=C:/vcpkg/installed/x64-windows/include `
+            -DTIFF_LIBRARY=C:/vcpkg/installed/x64-windows/lib/tiff.lib
+
+      - name: Compile LimbusTailor
+        shell: pwsh
+        run: |
+          cmake --build scantailor-build --config Release --target scantailor-universal compile_translations --parallel 2
+
+      - name: Assemble portable folder
+        shell: pwsh
+        run: |
+          $portable = Join-Path $env:GITHUB_WORKSPACE 'LimbusTailor-portable'
+          New-Item -ItemType Directory -Force -Path $portable | Out-Null
+          $exe = Get-ChildItem scantailor-build -Recurse -Filter scantailor-universal.exe | Select-Object -First 1
+          if (-not $exe) { throw 'scantailor-universal.exe was not produced' }
+          Copy-Item $exe.FullName $portable
+          & 'C:\Qt\5.15.2\msvc2019_64\bin\windeployqt.exe' --release --compiler-runtime --no-system-d3d-compiler $portable\scantailor-universal.exe
+          Copy-Item 'C:\vcpkg\installed\x64-windows\bin\*.dll' $portable -Force
+          New-Item -ItemType Directory -Force -Path (Join-Path $portable 'translations') | Out-Null
+          Get-ChildItem scantailor-build -Recurse -Filter *.qm | Copy-Item -Destination (Join-Path $portable 'translations') -Force
+          Copy-Item 'scantailor-universal\src\stylesheets' (Join-Path $portable 'stylesheets') -Recurse -Force
+          Set-Content -Path (Join-Path $portable 'BUILD.txt') -Value "LimbusTailor based on ScanTailor Universal 0.2.13`nFeatures: JPG/PNG/TIFF + per-side content safety margins + sparse-page protection + native white/black layout margins + content detection tuning`nBuilt from $env:GITHUB_SHA"
+
+      - name: Upload portable Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: LimbusTailor-Windows-x64
+          path: LimbusTailor-portable
+          if-no-files-found: error
