@@ -1,3 +1,42 @@
+diff --git a/src/core/filters/output/CacheDrivenTask.cpp b/src/core/filters/output/CacheDrivenTask.cpp
+index 133836c..a0bd30d 100644
+--- a/src/core/filters/output/CacheDrivenTask.cpp
++++ b/src/core/filters/output/CacheDrivenTask.cpp
+@@ -32,12 +32,14 @@
+ #include "Utils.h"
+ #include "AbstractFilterDataCollector.h"
+ #include "ThumbnailCollector.h"
++#include "settings/ini_keys.h"
+ #include <QString>
+ #include <QFileInfo>
+ #include <QRect>
+ #include <QRectF>
+ #include <QTransform>
+ #include <QDebug>
++#include <QSettings>
+ 
+ namespace output
+ {
+@@ -91,6 +93,9 @@ CacheDrivenTask::process(
+                 params.outputDpi(), params.colorParams(), params.despeckleLevel(),
+                 new_xform, content_rect_phys
+             );
++            const QString archiveMarginFill = QSettings().value(
++                _key_margins_fill_color, _key_margins_fill_color_def
++            ).toString().toUpper();
+             OutputImageParams const new_output_image_params(
+                 generator.outputImageSize(), generator.outputContentRect(),
+                 new_xform, params.outputDpi(), params.colorParams(),
+@@ -98,7 +103,8 @@ CacheDrivenTask::process(
+                 params.depthPerception(), params.despeckleLevel(),
+                 params.colorParams().colorMode() == ColorParams::BLACK_AND_WHITE ?
+                             GlobalStaticSettings::m_tiff_compr_method_bw :
+-                            GlobalStaticSettings::m_tiff_compr_method_color
++                            GlobalStaticSettings::m_tiff_compr_method_color,
++                archiveMarginFill
+             );
+ 
+             if (!stored_output_params->outputImageParams().matches(new_output_image_params)) {
 diff --git a/src/core/filters/output/OptionsWidget.cpp b/src/core/filters/output/OptionsWidget.cpp
 index 46f19e0..1e8d0b3 100644
 --- a/src/core/filters/output/OptionsWidget.cpp
@@ -41,7 +80,7 @@ index 46f19e0..1e8d0b3 100644
  
      depthPerceptionSlider->setMinimum(qRound(DepthPerception::minValue() * 10));
 diff --git a/src/core/filters/output/OutputGenerator.cpp b/src/core/filters/output/OutputGenerator.cpp
-index 25f3e23..9126f4e 100644
+index 25f3e23..570386a 100644
 --- a/src/core/filters/output/OutputGenerator.cpp
 +++ b/src/core/filters/output/OutputGenerator.cpp
 @@ -62,6 +62,7 @@
@@ -60,7 +99,41 @@ index 25f3e23..9126f4e 100644
  #include <Qt>
  #include <vector>
  #include <memory>
-@@ -665,6 +667,12 @@ OutputGenerator::processWithoutDewarping(TaskStatus const& status, FilterData co
+@@ -613,6 +615,15 @@ OutputGenerator::processAsIs(
+ 
+     QColor const bg_color(dominant_gray, dominant_gray, dominant_gray);
+ 
++    // LimbusTailor: pixels outside the physical source image are artificial
++    // layout area. Never extend the detected paper background into them.
++    QSettings archiveSettings;
++    const QString marginFillName = archiveSettings.value(
++        _key_margins_fill_color, _key_margins_fill_color_def
++    ).toString().toUpper();
++    const QColor outsideColor = marginFillName == QLatin1String("BLACK")
++        ? QColor(Qt::black) : QColor(Qt::white);
++
+     QImage out;
+     CommandLine const& cli = CommandLine::get();
+ 
+@@ -634,7 +645,7 @@ OutputGenerator::processAsIs(
+ 
+         out = transformToGray(
+                   input.grayImage(), m_xform.transform(), m_outRect,
+-                  OutsidePixels::assumeColor(bg_color)
++                  OutsidePixels::assumeColor(outsideColor)
+               );
+     } else {
+         if (m_outRect.isEmpty()) {
+@@ -645,7 +656,7 @@ OutputGenerator::processAsIs(
+ 
+         out = transform(
+                   input.origImage(), m_xform.transform(), m_outRect,
+-                  OutsidePixels::assumeColor(bg_color)
++                  OutsidePixels::assumeColor(outsideColor)
+               );
+     }
+ 
+@@ -665,6 +676,12 @@ OutputGenerator::processWithoutDewarping(TaskStatus const& status, FilterData co
                                          ) const
  {
      RenderParams const render_params(m_colorParams);
@@ -73,7 +146,7 @@ index 25f3e23..9126f4e 100644
      const bool suppress_smoothing = GlobalStaticSettings::m_disable_bw_smoothing &&
                                      (m_colorParams.colorMode() == ColorParams::BLACK_AND_WHITE);
  
-@@ -746,7 +754,7 @@ OutputGenerator::processWithoutDewarping(TaskStatus const& status, FilterData co
+@@ -746,7 +763,7 @@ OutputGenerator::processWithoutDewarping(TaskStatus const& status, FilterData co
      status.throwIfCancelled();
  
      if (render_params.binaryOutput() || m_outRect.isEmpty()) {
@@ -82,7 +155,7 @@ index 25f3e23..9126f4e 100644
  
          if (!m_contentRect.isEmpty()) {
              BinaryImage bw_content(
-@@ -1031,11 +1039,11 @@ OutputGenerator::processWithoutDewarping(TaskStatus const& status, FilterData co
+@@ -1031,11 +1048,11 @@ OutputGenerator::processWithoutDewarping(TaskStatus const& status, FilterData co
      if (maybe_normalized.format() == QImage::Format_Indexed8) {
          dst.setColorTable(createGrayscalePalette());
          // White.  0xff is reserved if in "Color / Grayscale" mode.
@@ -96,7 +169,7 @@ index 25f3e23..9126f4e 100644
          dst.fill(color);
      }
  
-@@ -1074,6 +1082,13 @@ OutputGenerator::processWithDewarping(TaskStatus const& status, FilterData const
+@@ -1074,6 +1091,13 @@ OutputGenerator::processWithDewarping(TaskStatus const& status, FilterData const
      }
  
      RenderParams const render_params(m_colorParams);
@@ -110,7 +183,7 @@ index 25f3e23..9126f4e 100644
      const bool suppress_smoothing = GlobalStaticSettings::m_disable_bw_smoothing &&
                                      (m_colorParams.colorMode() == ColorParams::BLACK_AND_WHITE);
  
-@@ -1544,17 +1559,17 @@ OutputGenerator::processWithDewarping(TaskStatus const& status, FilterData const
+@@ -1544,17 +1568,17 @@ OutputGenerator::processWithDewarping(TaskStatus const& status, FilterData const
      warped_gray_output = GrayImage(); // Save memory.
  
      if (render_params.whiteMargins()) {
@@ -968,42 +1041,3 @@ index a977d1f..13a1868 100644
  
  /* Page Layout: Alignment */
  
-diff --git a/src/core/filters/output/CacheDrivenTask.cpp b/src/core/filters/output/CacheDrivenTask.cpp
-index 133836c..a0bd30d 100644
---- a/src/core/filters/output/CacheDrivenTask.cpp
-+++ b/src/core/filters/output/CacheDrivenTask.cpp
-@@ -32,12 +32,14 @@
- #include "Utils.h"
- #include "AbstractFilterDataCollector.h"
- #include "ThumbnailCollector.h"
-+#include "settings/ini_keys.h"
- #include <QString>
- #include <QFileInfo>
- #include <QRect>
- #include <QRectF>
- #include <QTransform>
- #include <QDebug>
-+#include <QSettings>
- 
- namespace output
- {
-@@ -91,6 +93,9 @@ CacheDrivenTask::process(
-                 params.outputDpi(), params.colorParams(), params.despeckleLevel(),
-                 new_xform, content_rect_phys
-             );
-+            const QString archiveMarginFill = QSettings().value(
-+                _key_margins_fill_color, _key_margins_fill_color_def
-+            ).toString().toUpper();
-             OutputImageParams const new_output_image_params(
-                 generator.outputImageSize(), generator.outputContentRect(),
-                 new_xform, params.outputDpi(), params.colorParams(),
-@@ -98,7 +103,8 @@ CacheDrivenTask::process(
-                 params.depthPerception(), params.despeckleLevel(),
-                 params.colorParams().colorMode() == ColorParams::BLACK_AND_WHITE ?
-                             GlobalStaticSettings::m_tiff_compr_method_bw :
--                            GlobalStaticSettings::m_tiff_compr_method_color
-+                            GlobalStaticSettings::m_tiff_compr_method_color,
-+                archiveMarginFill
-             );
- 
-             if (!stored_output_params->outputImageParams().matches(new_output_image_params)) {
