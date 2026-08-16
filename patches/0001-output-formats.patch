@@ -1,0 +1,246 @@
+diff --git a/src/app/SettingsDialog.cpp b/src/app/SettingsDialog.cpp
+index 307841e..b029a98 100644
+--- a/src/app/SettingsDialog.cpp
++++ b/src/app/SettingsDialog.cpp
+@@ -511,6 +511,18 @@ void SettingsDialog::on_stackedWidget_currentChanged(int /*arg1*/)
+     if (currentPage == ui.pageApplyCut) {
+         ui.cbApplyCutDefault->setChecked(m_settings.value(_key_page_split_apply_cut_default, _key_page_split_apply_cut_default_def).toBool());
+     } else if (currentPage == ui.pageTiffCompression) {
++        ui.cbOutputImageFormat->blockSignals(true);
++        ui.cbOutputImageFormat->clear();
++        ui.cbOutputImageFormat->addItem(QStringLiteral("TIFF"));
++        ui.cbOutputImageFormat->addItem(QStringLiteral("JPEG"));
++        ui.cbOutputImageFormat->addItem(QStringLiteral("PNG"));
++        int fmt_idx = ui.cbOutputImageFormat->findText(
++            m_settings.value(_key_output_image_format, _key_output_image_format_def).toString().toUpper());
++        ui.cbOutputImageFormat->setCurrentIndex(fmt_idx >= 0 ? fmt_idx : 0);
++        ui.cbOutputImageFormat->blockSignals(false);
++        ui.sbJpegQuality->setValue(
++            m_settings.value(_key_output_jpeg_quality, _key_output_jpeg_quality_def).toInt());
++        ui.sbJpegQuality->setEnabled(ui.cbOutputImageFormat->currentText() == QLatin1String("JPEG"));
+         loadTiffList();
+         ui.useHorizontalPredictor->setChecked(m_settings.value(_key_tiff_compr_horiz_pred, _key_tiff_compr_horiz_pred_def).toBool());
+     } else if (currentPage == ui.pageAutoSaveProject) {
+@@ -682,6 +694,17 @@ void SettingsDialog::on_cbTiffCompressionColor_currentIndexChanged(int index)
+     m_settings.setValue(_key_tiff_compr_method_color, ui.cbTiffCompressionColor->currentText());
+ }
+ 
++void SettingsDialog::on_cbOutputImageFormat_currentIndexChanged(const QString& format)
++{
++    m_settings.setValue(_key_output_image_format, format.toUpper());
++    ui.sbJpegQuality->setEnabled(format.compare(QLatin1String("JPEG"), Qt::CaseInsensitive) == 0);
++}
++
++void SettingsDialog::on_sbJpegQuality_valueChanged(int quality)
++{
++    m_settings.setValue(_key_output_jpeg_quality, quality);
++}
++
+ 
+ void SettingsDialog::on_cbTiffFilter_clicked(bool checked)
+ {
+diff --git a/src/app/SettingsDialog.h b/src/app/SettingsDialog.h
+index 4d6272b..f3d314d 100644
+--- a/src/app/SettingsDialog.h
++++ b/src/app/SettingsDialog.h
+@@ -50,6 +50,8 @@ private slots:
+ 
+     void on_cbTiffCompressionBW_currentIndexChanged(int index);
+     void on_cbTiffCompressionColor_currentIndexChanged(int index);
++    void on_cbOutputImageFormat_currentIndexChanged(const QString& format);
++    void on_sbJpegQuality_valueChanged(int quality);
+ 
+     void on_cbTiffFilter_clicked(bool checked);
+ 
+diff --git a/src/app/ui/SettingsDialog.ui b/src/app/ui/SettingsDialog.ui
+index f324455..540a4ac 100644
+--- a/src/app/ui/SettingsDialog.ui
++++ b/src/app/ui/SettingsDialog.ui
+@@ -1148,11 +1148,11 @@ If project was never saved before this will create UnnamedAutoSave.Scantailor fi
+                <item>
+                 <widget class="QLabel" name="lblTiffDescr">
+                  <property name="text">
+-                  <string>Once all processing stages are complete the resulting images are saved in &quot;./out&quot; sub-folder of your project input folder in TIFF format. TIFF format supports dozens of image compression methods from None to JPEG. Default is LZW. Stick to it till you are sure you need something different.
++                  <string>Once all processing stages are complete the resulting images are saved in the &quot;./out&quot; sub-folder. ScanTailor Archive can save final pages as TIFF, JPEG or PNG. Internal masks and despeckling data remain TIFF.
+ 
+-Availability of compression methods depends on their support in libtiff and options used to build it. So not all methods are available. Also some could be used with black/white images only.
++TIFF keeps the original ScanTailor behavior. JPEG is much smaller and is recommended for color / grayscale archival access copies; JPEG quality is configurable. PNG is lossless but may be larger.
+ 
+-Horizontal differencing predictor - a preprocessing step applied to image data that might improve compression rate. Only few compression methods are benefit from this. In particular - LZW.</string>
++TIFF compression options below are used only when TIFF is selected.</string>
+                  </property>
+                  <property name="alignment">
+                   <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+@@ -1178,6 +1178,36 @@ Horizontal differencing predictor - a preprocessing step applied to image data t
+            <string>Options</string>
+           </property>
+           <layout class="QVBoxLayout" name="verticalLayout_58">
++           <item>
++            <widget class="QLabel" name="lblOutputImageFormat">
++             <property name="text">
++              <string>Final image format:</string>
++             </property>
++            </widget>
++           </item>
++           <item>
++            <widget class="QComboBox" name="cbOutputImageFormat"/>
++           </item>
++           <item>
++            <widget class="QLabel" name="lblJpegQuality">
++             <property name="text">
++              <string>JPEG quality:</string>
++             </property>
++            </widget>
++           </item>
++           <item>
++            <widget class="QSpinBox" name="sbJpegQuality">
++             <property name="minimum">
++              <number>1</number>
++             </property>
++             <property name="maximum">
++              <number>100</number>
++             </property>
++             <property name="value">
++              <number>95</number>
++             </property>
++            </widget>
++           </item>
+            <item>
+             <widget class="QLabel" name="lblTifCompressionBw">
+              <property name="text">
+diff --git a/src/core/OutputFileNameGenerator.cpp b/src/core/OutputFileNameGenerator.cpp
+index 616b7f4..77ed13f 100644
+--- a/src/core/OutputFileNameGenerator.cpp
++++ b/src/core/OutputFileNameGenerator.cpp
+@@ -20,6 +20,7 @@
+ #include "PageId.h"
+ #include "RelinkablePath.h"
+ #include "AbstractRelinker.h"
++#include "settings/globalstaticsettings.h"
+ #include <QFileInfo>
+ #include <QDir>
+ #include <assert.h>
+@@ -79,7 +80,14 @@ OutputFileNameGenerator::fileNameFor(PageId const& page) const
+         name += QLatin1Char(ltr == (sub_page == PageId::LEFT_PAGE) ? '1' : '2');
+         name += QLatin1Char(sub_page == PageId::LEFT_PAGE ? 'L' : 'R');
+     }
+-    name += QString::fromLatin1(".tif");
++    const QString format = GlobalStaticSettings::m_output_image_format;
++    if (format == QLatin1String("JPEG") || format == QLatin1String("JPG")) {
++        name += QString::fromLatin1(".jpg");
++    } else if (format == QLatin1String("PNG")) {
++        name += QString::fromLatin1(".png");
++    } else {
++        name += QString::fromLatin1(".tif");
++    }
+ 
+     return name;
+ }
+diff --git a/src/core/filters/output/Task.cpp b/src/core/filters/output/Task.cpp
+index 4371f48..a74c29e 100644
+--- a/src/core/filters/output/Task.cpp
++++ b/src/core/filters/output/Task.cpp
+@@ -67,6 +67,7 @@
+ #include <boost/shared_ptr.hpp>
+ #endif
+ #include <QImage>
++#include <QImageWriter>
+ #include <QString>
+ #include <QObject>
+ #include <QFile>
+@@ -87,6 +88,24 @@ using namespace dewarping;
+ namespace output
+ {
+ 
++namespace
++{
++bool writeFinalOutputImage(QString const& filePath, QImage const& image, QString* tiffCompressionUsed)
++{
++    const QString format = GlobalStaticSettings::m_output_image_format;
++    if (format == QLatin1String("JPEG") || format == QLatin1String("JPG")) {
++        QImageWriter writer(filePath, "jpeg");
++        writer.setQuality(GlobalStaticSettings::m_output_jpeg_quality);
++        return writer.write(image);
++    }
++    if (format == QLatin1String("PNG")) {
++        QImageWriter writer(filePath, "png");
++        return writer.write(image);
++    }
++    return TiffWriter::writeImage(filePath, image, false, 0, tiffCompressionUsed);
++}
++}
++
+ class Task::UiUpdater : public FilterResult
+ {
+     Q_DECLARE_TR_FUNCTIONS(output::Task::UiUpdater)
+@@ -470,7 +489,7 @@ Task::process(
+ 
+         QString TiffCompressionUsed;
+ 
+-        if (!TiffWriter::writeImage(out_file_path, out_img, false, 0, &TiffCompressionUsed)) {
++        if (!writeFinalOutputImage(out_file_path, out_img, &TiffCompressionUsed)) {
+             invalidate_params = true;
+         } else {
+             deleteMutuallyExclusiveOutputFiles();
+@@ -479,7 +498,8 @@ Task::process(
+                 ImageMetadataCopier::copyMetadata(m_pageId.imageId().filePath(), out_file_path);
+             }
+ #endif
+-            if (TiffCompressionUsed != new_output_image_params.TiffCompression()) {
++            if (GlobalStaticSettings::m_output_image_format == QLatin1String("TIFF") &&
++                    TiffCompressionUsed != new_output_image_params.TiffCompression()) {
+                 new_output_image_params.setTiffCompression(TiffCompressionUsed);
+             }
+ //            if (TiffCompressionUsed != params.TiffCompression()) {
+diff --git a/src/core/settings/globalstaticsettings.cpp b/src/core/settings/globalstaticsettings.cpp
+index 06484af..ae2d029 100644
+--- a/src/core/settings/globalstaticsettings.cpp
++++ b/src/core/settings/globalstaticsettings.cpp
+@@ -46,6 +46,8 @@ QColor GlobalStaticSettings::m_deskew_controls_color_thumb;
+ QColor GlobalStaticSettings::m_content_sel_content_color;
+ QColor GlobalStaticSettings::m_content_sel_content_color_pen;
+ bool GlobalStaticSettings::m_output_copy_icc_metadata;
++QString GlobalStaticSettings::m_output_image_format = QStringLiteral("TIFF");
++int GlobalStaticSettings::m_output_jpeg_quality = 95;
+ QHotKeys GlobalStaticSettings::m_hotKeyManager = QHotKeys();
+ int  GlobalStaticSettings::m_highlightColorAdjustment = 140;
+ 
+@@ -201,6 +203,8 @@ void GlobalStaticSettings::updateSettings()
+         m_deskew_controls_color_thumb.setAlpha(70);
+     }
+     m_output_copy_icc_metadata = settings.value(_key_output_metadata_copy_icc, _key_output_metadata_copy_icc_def).toBool();
++    m_output_image_format = settings.value(_key_output_image_format, _key_output_image_format_def).toString().toUpper();
++    m_output_jpeg_quality = qBound(1, settings.value(_key_output_jpeg_quality, _key_output_jpeg_quality_def).toInt(), 100);
+ 
+     m_highlightColorAdjustment = 100 + settings.value(_key_thumbnails_non_focused_selection_highlight_color_adj, _key_thumbnails_non_focused_selection_highlight_color_adj_def).toInt();
+ 
+diff --git a/src/core/settings/globalstaticsettings.h b/src/core/settings/globalstaticsettings.h
+index a8ab5ef..dc64d36 100644
+--- a/src/core/settings/globalstaticsettings.h
++++ b/src/core/settings/globalstaticsettings.h
+@@ -86,6 +86,8 @@ public:
+     static QColor m_content_sel_content_color;
+     static QColor m_content_sel_content_color_pen;
+     static bool m_output_copy_icc_metadata;
++    static QString m_output_image_format;
++    static int m_output_jpeg_quality;
+     static QHotKeys m_hotKeyManager;
+     static int m_highlightColorAdjustment;
+ 
+diff --git a/src/core/settings/ini_keys.h b/src/core/settings/ini_keys.h
+index f3e29ee..6f23972 100644
+--- a/src/core/settings/ini_keys.h
++++ b/src/core/settings/ini_keys.h
+@@ -218,6 +218,12 @@ static const bool _key_output_picture_layer_enabled_def = true;
+ static const char* _key_output_metadata_copy_icc = "metadata/copy_icc";
+ static const bool _key_output_metadata_copy_icc_def = false;
+ 
++// ScanTailor Archive: final output format. Internal masks remain TIFF.
++static const char* _key_output_image_format = "output/image_format";
++static const char* _key_output_image_format_def = "TIFF";
++static const char* _key_output_jpeg_quality = "output/jpeg_quality";
++static const int _key_output_jpeg_quality_def = 95;
++
+ /* Dewarping */
+ 
+ static const char* _key_dewarp_auto_vert_half_correction = "dewarp/auto_vert_half_correction";
