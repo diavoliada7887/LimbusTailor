@@ -1,0 +1,56 @@
+name: LimbusTailor compile check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'work/**'
+    paths:
+      - 'patches/**'
+      - '.github/workflows/limbustailor-linux.yml'
+  pull_request:
+    paths:
+      - 'patches/**'
+      - '.github/workflows/limbustailor-linux.yml'
+
+jobs:
+  linux-compile:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout LimbusTailor
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake git \
+            qtbase5-dev qttools5-dev qttools5-dev-tools libqt5svg5-dev \
+            libboost-all-dev libjpeg-dev libpng-dev libtiff-dev \
+            libopenjp2-7-dev libexiv2-dev libcanberra-dev
+
+      - name: Fetch ScanTailor Universal 0.2.13
+        run: |
+          git clone --branch 0.2.13 --depth 1 --recurse-submodules \
+            https://github.com/trufanov-nok/scantailor-universal.git scantailor-universal
+
+      - name: Apply LimbusTailor patches
+        working-directory: scantailor-universal
+        run: |
+          for p in ../patches/0001-output-formats.patch \
+                   ../patches/0002-content-padding-mm.patch \
+                   ../patches/0003-sparse-page-protection.patch \
+                   ../patches/0004-modern-windows-portable-build.patch \
+                   ../patches/0006-hard-page-boundary-and-output-ui.patch; do
+            git apply --check "$p"
+            git apply "$p"
+          done
+
+      - name: Configure
+        working-directory: scantailor-universal
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_OPENGL=OFF
+
+      - name: Compile
+        working-directory: scantailor-universal
+        run: cmake --build build --parallel 2
