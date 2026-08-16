@@ -1,0 +1,9 @@
+                 params.depthPerception(), params.despeckleLevel(),
+                 params.colorParams().colorMode() == ColorParams::BLACK_AND_WHITE ?
+                             GlobalStaticSettings::m_tiff_compr_method_bw :
+-                            GlobalStaticSettings::m_tiff_compr_method_color
++                            GlobalStaticSettings::m_tiff_compr_method_color,
++                archiveMarginFill
+             );
+ 
+             if (!stored_output_params->outputImageParams().matches(new_output_image_params)) {
