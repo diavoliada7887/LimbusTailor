@@ -1,0 +1,1009 @@
+diff --git a/src/core/filters/output/OptionsWidget.cpp b/src/core/filters/output/OptionsWidget.cpp
+index 46f19e0..1e8d0b3 100644
+--- a/src/core/filters/output/OptionsWidget.cpp
++++ b/src/core/filters/output/OptionsWidget.cpp
+@@ -63,6 +63,37 @@ OptionsWidget::OptionsWidget(
+ {
+     setupUi(this);
+ 
++    // ScanTailor Archive: final format belongs to the Output stage.
++    QSettings archiveSettings;
++    archiveOutputFormat->addItem(QStringLiteral("TIFF"));
++    archiveOutputFormat->addItem(QStringLiteral("JPEG"));
++    archiveOutputFormat->addItem(QStringLiteral("PNG"));
++    const QString archiveFormat = archiveSettings.value(
++        _key_output_image_format, _key_output_image_format_def
++    ).toString().toUpper();
++    const int archiveFormatIndex = archiveOutputFormat->findText(archiveFormat);
++    archiveOutputFormat->setCurrentIndex(archiveFormatIndex >= 0 ? archiveFormatIndex : 0);
++    archiveJpegQuality->setValue(archiveSettings.value(
++        _key_output_jpeg_quality, _key_output_jpeg_quality_def
++    ).toInt());
++    archiveJpegQuality->setEnabled(
++        archiveOutputFormat->currentText() == QLatin1String("JPEG")
++    );
++
++    connect(archiveOutputFormat, &QComboBox::currentTextChanged, this, [](QString const& format) {
++        QSettings settings;
++        settings.setValue(_key_output_image_format, format.toUpper());
++        GlobalStaticSettings::updateSettings();
++    });
++    connect(archiveOutputFormat, &QComboBox::currentTextChanged, this, [this](QString const& format) {
++        archiveJpegQuality->setEnabled(format == QLatin1String("JPEG"));
++    });
++    connect(archiveJpegQuality, QOverload<int>::of(&QSpinBox::valueChanged), this, [](int quality) {
++        QSettings settings;
++        settings.setValue(_key_output_jpeg_quality, quality);
++        GlobalStaticSettings::updateSettings();
++    });
++
+     setDespeckleLevel(DESPECKLE_NORMAL);
+ 
+     depthPerceptionSlider->setMinimum(qRound(DepthPerception::minValue() * 10));
+diff --git a/src/core/filters/output/OutputGenerator.cpp b/src/core/filters/output/OutputGenerator.cpp
+index 25f3e23..9126f4e 100644
+--- a/src/core/filters/output/OutputGenerator.cpp
++++ b/src/core/filters/output/OutputGenerator.cpp
+@@ -62,6 +62,7 @@
+ #include "imageproc/ConnectivityMap.h"
+ #include "imageproc/InfluenceMap.h"
+ #include "config.h"
++#include "settings/ini_keys.h"
+ #include "settings/globalstaticsettings.h"
+ #ifdef HAVE_EXIV2
+ #include "ImageMetadataCopier.h"
+@@ -84,6 +85,7 @@
+ #include <QBrush>
+ #include <QtGlobal>
+ #include <QDebug>
++#include <QSettings>
+ #include <Qt>
+ #include <vector>
+ #include <memory>
+@@ -665,6 +667,12 @@ OutputGenerator::processWithoutDewarping(TaskStatus const& status, FilterData co
+                                         ) const
+ {
+     RenderParams const render_params(m_colorParams);
++    QSettings archiveSettings;
++    const QString marginFillName = archiveSettings.value(
++        _key_margins_fill_color, _key_margins_fill_color_def
++    ).toString().toUpper();
++    const bool blackMargins = marginFillName == QLatin1String("BLACK");
++
+     const bool suppress_smoothing = GlobalStaticSettings::m_disable_bw_smoothing &&
+                                     (m_colorParams.colorMode() == ColorParams::BLACK_AND_WHITE);
+ 
+@@ -746,7 +754,7 @@ OutputGenerator::processWithoutDewarping(TaskStatus const& status, FilterData co
+     status.throwIfCancelled();
+ 
+     if (render_params.binaryOutput() || m_outRect.isEmpty()) {
+-        BinaryImage dst(m_outRect.size().expandedTo(QSize(1, 1)), WHITE);
++        BinaryImage dst(m_outRect.size().expandedTo(QSize(1, 1)), blackMargins ? BLACK : WHITE);
+ 
+         if (!m_contentRect.isEmpty()) {
+             BinaryImage bw_content(
+@@ -1031,11 +1039,11 @@ OutputGenerator::processWithoutDewarping(TaskStatus const& status, FilterData co
+     if (maybe_normalized.format() == QImage::Format_Indexed8) {
+         dst.setColorTable(createGrayscalePalette());
+         // White.  0xff is reserved if in "Color / Grayscale" mode.
+-        uint8_t const color = render_params.mixedOutput() ? 0xff : 0xfe;
++        uint8_t const color = blackMargins ? 0x00 : (render_params.mixedOutput() ? 0xff : 0xfe);
+         dst.fill(color);
+     } else {
+         // White.  0x[ff]ffffff is reserved if in "Color / Grayscale" mode.
+-        uint32_t const color = render_params.mixedOutput() ? 0xffffffff : 0xfffefefe;
++        uint32_t const color = blackMargins ? 0xff000000 : (render_params.mixedOutput() ? 0xffffffff : 0xfffefefe);
+         dst.fill(color);
+     }
+ 
+@@ -1074,6 +1082,13 @@ OutputGenerator::processWithDewarping(TaskStatus const& status, FilterData const
+     }
+ 
+     RenderParams const render_params(m_colorParams);
++    QSettings archiveSettings;
++    const QString marginFillName = archiveSettings.value(
++        _key_margins_fill_color, _key_margins_fill_color_def
++    ).toString().toUpper();
++    const QColor marginFillColor = marginFillName == QLatin1String("BLACK")
++        ? QColor(Qt::black) : QColor(Qt::white);
++
+     const bool suppress_smoothing = GlobalStaticSettings::m_disable_bw_smoothing &&
+                                     (m_colorParams.colorMode() == ColorParams::BLACK_AND_WHITE);
+ 
+@@ -1544,17 +1559,17 @@ OutputGenerator::processWithDewarping(TaskStatus const& status, FilterData const
+     warped_gray_output = GrayImage(); // Save memory.
+ 
+     if (render_params.whiteMargins()) {
+-        // Fill everything except the content area in normalized_original to white.
++        // Fill everything except the content area with the selected layout margin color.
+         QPolygonF const orig_content_poly(m_xform.transformBack().map(QRectF(m_contentRect)));
+-        fillMarginsInPlace(normalized_original, orig_content_poly, Qt::white);
++        fillMarginsInPlace(normalized_original, orig_content_poly, marginFillColor);
+         if (dbg) {
+-            dbg->add(normalized_original, "white margins");
++            dbg->add(normalized_original, "layout margins");
+         }
+     }
+ 
+     status.throwIfCancelled();
+ 
+-    QColor bg_color(Qt::white);
++    QColor bg_color(marginFillColor);
+     if (!render_params.whiteMargins()) {
+         uint8_t const dominant_gray = reserveBlackAndWhite<uint8_t>(
+                                           calcDominantBackgroundGrayLevel(input.grayImage())
+diff --git a/src/core/filters/output/OutputImageParams.cpp b/src/core/filters/output/OutputImageParams.cpp
+index 54578ab..743d124 100644
+--- a/src/core/filters/output/OutputImageParams.cpp
++++ b/src/core/filters/output/OutputImageParams.cpp
+@@ -36,7 +36,8 @@ OutputImageParams::OutputImageParams(QSize const& out_image_size, QRect const& c
+     dewarping::DistortionModel const& distortion_model,
+     DepthPerception const& depth_perception,
+     DespeckleLevel const despeckle_level,
+-    QString const&TiffCompression)
++    QString const&TiffCompression,
++    QString const& archiveMarginFill)
+     :   m_size(out_image_size),
+         m_contentRect(content_rect),
+         m_dpi(dpi),
+@@ -45,7 +46,8 @@ OutputImageParams::OutputImageParams(QSize const& out_image_size, QRect const& c
+         m_depthPerception(depth_perception),
+         m_dewarpingMode(dewarping_mode),
+         m_despeckleLevel(despeckle_level),
+-        m_TiffCompression(TiffCompression)
++        m_TiffCompression(TiffCompression),
++        m_archiveMarginFill(archiveMarginFill)
+ {
+     // For historical reasons, we disregard post-cropping and post-scaling here.
+     xform.setPostCropArea(QPolygonF()); // Resets post-scale as well.
+@@ -61,7 +63,8 @@ OutputImageParams::OutputImageParams(QDomElement const& el)
+         m_depthPerception(el.attribute("depthPerception")),
+         m_dewarpingMode(el.attribute("dewarpingMode")),
+         m_despeckleLevel(despeckleLevelFromString(el.attribute("despeckleLevel"))),
+-        m_TiffCompression(el.attribute("tiff-compression"))
++        m_TiffCompression(el.attribute("tiff-compression")),
++        m_archiveMarginFill(el.attribute("archive-margin-fill", "WHITE"))
+ {
+ }
+ 
+@@ -81,6 +84,7 @@ OutputImageParams::toXml(QDomDocument& doc, QString const& name) const
+     el.setAttribute("dewarpingMode", m_dewarpingMode.toString());
+     el.setAttribute("despeckleLevel", despeckleLevelToString(m_despeckleLevel));
+     el.setAttribute("tiff-compression", m_TiffCompression);
++    el.setAttribute("archive-margin-fill", m_archiveMarginFill);
+ 
+     return el;
+ }
+@@ -108,6 +112,10 @@ OutputImageParams::matches(OutputImageParams const& other) const
+         return false;
+     }
+ 
++    if (m_archiveMarginFill != other.m_archiveMarginFill) {
++        return false;
++    }
++
+     if (!colorParamsMatch(m_colorParams, m_despeckleLevel,
+                           other.m_colorParams, other.m_despeckleLevel)) {
+         return false;
+diff --git a/src/core/filters/output/OutputImageParams.h b/src/core/filters/output/OutputImageParams.h
+index 2ba0249..9f02cb7 100644
+--- a/src/core/filters/output/OutputImageParams.h
++++ b/src/core/filters/output/OutputImageParams.h
+@@ -50,7 +50,8 @@ public:
+                       dewarping::DistortionModel const& distortion_model,
+                       DepthPerception const& depth_perception,
+                       DespeckleLevel despeckle_level,
+-                      QString const& TiffCompression);
++                      QString const& TiffCompression,
++                      QString const& archiveMarginFill);
+ 
+     explicit OutputImageParams(QDomElement const& el);
+ 
+@@ -155,6 +156,9 @@ private:
+ 
+     /** Tiff compression method of the output image. */
+     QString m_TiffCompression;
++
++    /** ScanTailor Archive Page Layout fill color. */
++    QString m_archiveMarginFill;
+ };
+ 
+ } // namespace output
+diff --git a/src/core/filters/output/Task.cpp b/src/core/filters/output/Task.cpp
+index a74c29e..f5935d9 100644
+--- a/src/core/filters/output/Task.cpp
++++ b/src/core/filters/output/Task.cpp
+@@ -71,6 +71,14 @@
+ #include <QString>
+ #include <QObject>
+ #include <QFile>
++#include <QPainter>
++#include <QPainterPath>
++#include <QPolygonF>
++#include <QSettings>
++#include <algorithm>
++#include <cmath>
++#include <vector>
++#include "settings/ini_keys.h"
+ #include <QDir>
+ #include <QFileInfo>
+ #include <QTabWidget>
+@@ -90,6 +98,257 @@ namespace output
+ 
+ namespace
+ {
++struct LinearFit
++{
++    double a = 0.0;
++    double b = 0.0;
++    bool valid = false;
++};
++
++LinearFit fitLine(std::vector<QPointF> const& points, bool xFromY)
++{
++    if (points.size() < 4) {
++        return LinearFit();
++    }
++
++    auto solve = [xFromY](std::vector<QPointF> const& pts) {
++        LinearFit fit;
++        double sumT = 0.0;
++        double sumV = 0.0;
++        double sumTT = 0.0;
++        double sumTV = 0.0;
++        for (QPointF const& p : pts) {
++            const double t = xFromY ? p.y() : p.x();
++            const double v = xFromY ? p.x() : p.y();
++            sumT += t;
++            sumV += v;
++            sumTT += t * t;
++            sumTV += t * v;
++        }
++        const double n = static_cast<double>(pts.size());
++        const double denom = n * sumTT - sumT * sumT;
++        if (std::abs(denom) < 1e-9) {
++            return fit;
++        }
++        fit.a = (n * sumTV - sumT * sumV) / denom;
++        fit.b = (sumV - fit.a * sumT) / n;
++        fit.valid = true;
++        return fit;
++    };
++
++    LinearFit first = solve(points);
++    if (!first.valid) {
++        return first;
++    }
++
++    std::vector<double> residuals;
++    residuals.reserve(points.size());
++    for (QPointF const& p : points) {
++        const double t = xFromY ? p.y() : p.x();
++        const double v = xFromY ? p.x() : p.y();
++        residuals.push_back(std::abs(v - (first.a * t + first.b)));
++    }
++    std::vector<double> sorted = residuals;
++    std::sort(sorted.begin(), sorted.end());
++    const double median = sorted[sorted.size() / 2];
++    const double limit = std::max(3.0, median * 3.0);
++
++    std::vector<QPointF> filtered;
++    filtered.reserve(points.size());
++    for (size_t i = 0; i < points.size(); ++i) {
++        if (residuals[i] <= limit) {
++            filtered.push_back(points[i]);
++        }
++    }
++    return filtered.size() >= 4 ? solve(filtered) : first;
++}
++
++bool findBrightRun(QImage const& gray, int fixed, bool horizontal, bool reverse,
++                   int threshold, int* edge)
++{
++    const int length = horizontal ? gray.width() : gray.height();
++    const int run = std::max(4, length / 300);
++    int count = 0;
++
++    for (int step = 0; step < length; ++step) {
++        const int pos = reverse ? length - 1 - step : step;
++        const int x = horizontal ? pos : fixed;
++        const int y = horizontal ? fixed : pos;
++        if (qGray(gray.pixel(x, y)) >= threshold) {
++            ++count;
++            if (count >= run) {
++                *edge = reverse ? pos + run - 1 : pos - run + 1;
++                return true;
++            }
++        } else {
++            count = 0;
++        }
++    }
++    return false;
++}
++
++QPointF intersectVerticalHorizontal(LinearFit const& vertical, LinearFit const& horizontal)
++{
++    const double denom = 1.0 - horizontal.a * vertical.a;
++    if (std::abs(denom) < 1e-9) {
++        return QPointF();
++    }
++    const double y = (horizontal.a * vertical.b + horizontal.b) / denom;
++    const double x = vertical.a * y + vertical.b;
++    return QPointF(x, y);
++}
++
++QPolygonF detectPhysicalPagePolygon(QImage const& image)
++{
++    if (image.width() < 64 || image.height() < 64) {
++        return QPolygonF();
++    }
++
++    const int maxDim = 1800;
++    const double scale = std::min(
++        1.0, maxDim / static_cast<double>(std::max(image.width(), image.height()))
++    );
++    QImage small = scale < 1.0
++        ? image.scaled(qRound(image.width() * scale), qRound(image.height() * scale),
++                       Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
++        : image;
++    QImage gray = small.convertToFormat(QImage::Format_Grayscale8);
++
++    std::vector<int> borderValues;
++    std::vector<int> centerValues;
++    const int w = gray.width();
++    const int h = gray.height();
++    const int stride = std::max(1, std::min(w, h) / 120);
++    for (int x = 0; x < w; x += stride) {
++        borderValues.push_back(qGray(gray.pixel(x, 0)));
++        borderValues.push_back(qGray(gray.pixel(x, h - 1)));
++    }
++    for (int y = 0; y < h; y += stride) {
++        borderValues.push_back(qGray(gray.pixel(0, y)));
++        borderValues.push_back(qGray(gray.pixel(w - 1, y)));
++    }
++    for (int y = h / 3; y < (2 * h) / 3; y += stride) {
++        for (int x = w / 3; x < (2 * w) / 3; x += stride) {
++            centerValues.push_back(qGray(gray.pixel(x, y)));
++        }
++    }
++    if (borderValues.empty() || centerValues.empty()) {
++        return QPolygonF();
++    }
++    std::sort(borderValues.begin(), borderValues.end());
++    std::sort(centerValues.begin(), centerValues.end());
++    const int bg = borderValues[borderValues.size() / 2];
++    const int paper = centerValues[centerValues.size() / 2];
++    if (paper - bg < 30) {
++        return QPolygonF();
++    }
++    const int threshold = qBound(20, bg + qRound((paper - bg) * 0.42), 235);
++
++    std::vector<QPointF> leftPts, rightPts, topPts, bottomPts;
++    const int samples = 31;
++    for (int i = 2; i < samples - 2; ++i) {
++        const int y = qRound((i / static_cast<double>(samples - 1)) * (h - 1));
++        int left = 0, right = 0;
++        if (findBrightRun(gray, y, true, false, threshold, &left)) {
++            leftPts.emplace_back(left, y);
++        }
++        if (findBrightRun(gray, y, true, true, threshold, &right)) {
++            rightPts.emplace_back(right, y);
++        }
++
++        const int x = qRound((i / static_cast<double>(samples - 1)) * (w - 1));
++        int top = 0, bottom = 0;
++        if (findBrightRun(gray, x, false, false, threshold, &top)) {
++            topPts.emplace_back(x, top);
++        }
++        if (findBrightRun(gray, x, false, true, threshold, &bottom)) {
++            bottomPts.emplace_back(x, bottom);
++        }
++    }
++
++    const LinearFit left = fitLine(leftPts, true);
++    const LinearFit right = fitLine(rightPts, true);
++    const LinearFit top = fitLine(topPts, false);
++    const LinearFit bottom = fitLine(bottomPts, false);
++    if (!left.valid || !right.valid || !top.valid || !bottom.valid) {
++        return QPolygonF();
++    }
++
++    QPolygonF poly;
++    poly << intersectVerticalHorizontal(left, top)
++         << intersectVerticalHorizontal(right, top)
++         << intersectVerticalHorizontal(right, bottom)
++         << intersectVerticalHorizontal(left, bottom);
++
++    const QRectF bounds = poly.boundingRect();
++    if (!bounds.isValid() || bounds.width() < w * 0.25 || bounds.height() < h * 0.25
++        || bounds.left() < -w * 0.1 || bounds.top() < -h * 0.1
++        || bounds.right() > w * 1.1 || bounds.bottom() > h * 1.1) {
++        return QPolygonF();
++    }
++
++    if (scale < 1.0) {
++        QTransform back;
++        back.scale(1.0 / scale, 1.0 / scale);
++        poly = back.map(poly);
++    }
++    return poly;
++}
++
++Qt::GlobalColor archiveMarginFillColor()
++{
++    QSettings settings;
++    const QString fillName = settings.value(
++        _key_margins_fill_color, _key_margins_fill_color_def
++    ).toString().toUpper();
++    return fillName == QLatin1String("BLACK") ? Qt::black : Qt::white;
++}
++
++void protectScannerBackground(QImage& image, Qt::GlobalColor fillColor)
++{
++    QSettings settings;
++    const double paddingMm = settings.value(
++        _key_content_sel_content_padding_mm, _key_content_sel_content_padding_mm_def
++    ).toDouble();
++    if (paddingMm <= 0.0 || image.isNull()) {
++        return;
++    }
++
++    const QPolygonF page = detectPhysicalPagePolygon(image);
++    if (page.size() != 4) {
++        return;
++    }
++
++    QPainterPath outside;
++    outside.setFillRule(Qt::OddEvenFill);
++    outside.addRect(QRectF(image.rect()));
++    QPainterPath inside;
++    inside.addPolygon(page);
++    inside.closeSubpath();
++    outside.addPath(inside);
++
++    QPainter painter(&image);
++    painter.setRenderHint(QPainter::Antialiasing, false);
++    painter.fillPath(outside, fillColor);
++}
++
++void fillArchiveLayoutMargins(QImage& image, QRect const& contentRect, Qt::GlobalColor fillColor)
++{
++    if (image.isNull()) {
++        return;
++    }
++    const QRect clippedContent = contentRect.intersected(image.rect());
++    QPainterPath outside;
++    outside.setFillRule(Qt::OddEvenFill);
++    outside.addRect(QRectF(image.rect()));
++    if (!clippedContent.isEmpty()) {
++        outside.addRect(QRectF(clippedContent));
++    }
++    QPainter painter(&image);
++    painter.setRenderHint(QPainter::Antialiasing, false);
++    painter.fillPath(outside, fillColor);
++}
++
+ bool writeFinalOutputImage(QString const& filePath, QImage const& image, QString* tiffCompressionUsed)
+ {
+     const QString format = GlobalStaticSettings::m_output_image_format;
+@@ -268,6 +527,10 @@ Task::process(
+         new_xform, content_rect_phys
+     );
+ 
++    const QString archiveMarginFill = QSettings().value(
++        _key_margins_fill_color, _key_margins_fill_color_def
++    ).toString().toUpper();
++
+     OutputImageParams new_output_image_params(
+         generator.outputImageSize(), generator.outputContentRect(),
+         new_xform, params.outputDpi(), params.colorParams(),
+@@ -275,7 +538,8 @@ Task::process(
+         params.depthPerception(), params.despeckleLevel(),
+         params.colorParams().colorMode() == ColorParams::BLACK_AND_WHITE ?
+                     GlobalStaticSettings::m_tiff_compr_method_bw :
+-                    GlobalStaticSettings::m_tiff_compr_method_color);
++                    GlobalStaticSettings::m_tiff_compr_method_color,
++        archiveMarginFill);
+ 
+ //begin of modified by monday2000
+ //Quadro_Zoner
+@@ -489,6 +753,11 @@ Task::process(
+ 
+         QString TiffCompressionUsed;
+ 
++        // ScanTailor Archive: literal Page Layout paint.
++        const Qt::GlobalColor archiveFill = archiveMarginFillColor();
++        protectScannerBackground(out_img, archiveFill);
++        fillArchiveLayoutMargins(out_img, generator.outputContentRect(), archiveFill);
++
+         if (!writeFinalOutputImage(out_file_path, out_img, &TiffCompressionUsed)) {
+             invalidate_params = true;
+         } else {
+diff --git a/src/core/filters/output/ui/OutputOptionsWidget.ui b/src/core/filters/output/ui/OutputOptionsWidget.ui
+index 2031c2f..9546339 100644
+--- a/src/core/filters/output/ui/OutputOptionsWidget.ui
++++ b/src/core/filters/output/ui/OutputOptionsWidget.ui
+@@ -70,6 +70,45 @@
+      </property>
+     </widget>
+    </item>
++   <item>
++    <widget class="QGroupBox" name="archiveOutputBox">
++     <property name="title">
++      <string>Archive output</string>
++     </property>
++     <layout class="QFormLayout" name="archiveOutputLayout">
++      <item row="0" column="0">
++       <widget class="QLabel" name="archiveOutputFormatLabel">
++        <property name="text">
++         <string>Format:</string>
++        </property>
++       </widget>
++      </item>
++      <item row="0" column="1">
++       <widget class="QComboBox" name="archiveOutputFormat"/>
++      </item>
++      <item row="1" column="0">
++       <widget class="QLabel" name="archiveJpegQualityLabel">
++        <property name="text">
++         <string>JPEG quality:</string>
++        </property>
++       </widget>
++      </item>
++      <item row="1" column="1">
++       <widget class="QSpinBox" name="archiveJpegQuality">
++        <property name="minimum">
++         <number>1</number>
++        </property>
++        <property name="maximum">
++         <number>100</number>
++        </property>
++        <property name="value">
++         <number>95</number>
++        </property>
++       </widget>
++      </item>
++     </layout>
++    </widget>
++   </item>
+    <item>
+     <widget class="QWidget" name="modePanel" native="true">
+      <property name="sizePolicy">
+diff --git a/src/core/filters/page_layout/OptionsWidget.cpp b/src/core/filters/page_layout/OptionsWidget.cpp
+index c714d12..cd21258 100644
+--- a/src/core/filters/page_layout/OptionsWidget.cpp
++++ b/src/core/filters/page_layout/OptionsWidget.cpp
+@@ -68,6 +68,15 @@ OptionsWidget::OptionsWidget(
+     updateLinkDisplay(topBottomLink, m_topBottomLinked);
+     updateLinkDisplay(leftRightLink, m_leftRightLinked);
+ 
++    QSettings archiveSettings;
++    marginFillColor->addItem(QStringLiteral("White"), QStringLiteral("WHITE"));
++    marginFillColor->addItem(QStringLiteral("Black"), QStringLiteral("BLACK"));
++    const QString marginFill = archiveSettings.value(
++        _key_margins_fill_color, _key_margins_fill_color_def
++    ).toString().toUpper();
++    const int marginFillIndex = marginFillColor->findData(marginFill);
++    marginFillColor->setCurrentIndex(marginFillIndex >= 0 ? marginFillIndex : 0);
++
+     connect(
+         unitsComboBox, SIGNAL(currentIndexChanged(int)),
+         this, SLOT(unitsChanged(int))
+@@ -108,6 +117,12 @@ OptionsWidget::OptionsWidget(
+         applyAlignmentBtn, SIGNAL(clicked()),
+         this, SLOT(showApplyAlignmentDialog())
+     );
++    connect(marginFillColor, QOverload<int>::of(&QComboBox::currentIndexChanged),
++            this, [this](int index) {
++        QSettings settings;
++        settings.setValue(_key_margins_fill_color, marginFillColor->itemData(index).toString());
++        emit reloadRequested();
++    });
+ 
+     unitsComboBox->setCurrentIndex(QSettings().value(_key_margins_default_units, _key_margins_default_units_def).toUInt());
+ 
+diff --git a/src/core/filters/page_layout/ui/PageLayoutOptionsWidget.ui b/src/core/filters/page_layout/ui/PageLayoutOptionsWidget.ui
+index aa1e559..9252e2a 100644
+--- a/src/core/filters/page_layout/ui/PageLayoutOptionsWidget.ui
++++ b/src/core/filters/page_layout/ui/PageLayoutOptionsWidget.ui
+@@ -68,6 +68,20 @@
+         </item>
+        </layout>
+       </item>
++      <item>
++       <layout class="QHBoxLayout" name="marginFillLayout">
++        <item>
++         <widget class="QLabel" name="marginFillLabel">
++          <property name="text">
++           <string>Fill color:</string>
++          </property>
++         </widget>
++        </item>
++        <item>
++         <widget class="QComboBox" name="marginFillColor"/>
++        </item>
++       </layout>
++      </item>
+       <item>
+        <widget class="QWidget" name="panelMarginsControls" native="true">
+         <layout class="QHBoxLayout" name="horizontalLayout_2">
+diff --git a/src/core/filters/select_content/ContentBoxFinder.cpp b/src/core/filters/select_content/ContentBoxFinder.cpp
+index 570999e..33d558a 100644
+--- a/src/core/filters/select_content/ContentBoxFinder.cpp
++++ b/src/core/filters/select_content/ContentBoxFinder.cpp
+@@ -42,6 +42,8 @@
+ #include "imageproc/ConnectivityMap.h"
+ #include "imageproc/InfluenceMap.h"
+ #include "imageproc/SEDM.h"
++#include "settings/ini_keys.h"
++#include <QSettings>
+ #include <QRect>
+ #include <QRectF>
+ #include <QPolygonF>
+@@ -139,7 +141,13 @@ ContentBoxFinder::findContentBox(
+         dbg->add(gray150, "gray150");
+     }
+ 
+-    BinaryImage bw150(binarizeWolf(gray150, QSize(51, 51), 50));
++    QSettings archiveSettings;
++    const int wolfLowerBound = qBound(
++        1,
++        archiveSettings.value(_key_content_sel_wolf_lower_bound, _key_content_sel_wolf_lower_bound_def).toInt(),
++        254
++    );
++    BinaryImage bw150(binarizeWolf(gray150, QSize(51, 51), static_cast<unsigned char>(wolfLowerBound)));
+     if (dbg) {
+         dbg->add(bw150, "bw150");
+     }
+@@ -222,6 +230,15 @@ ContentBoxFinder::findContentBox(
+ 
+     CommandLine const& cli = CommandLine::get();
+     Despeckle::Level despeckleLevel = Despeckle::NORMAL;
++    const QString cleanup = archiveSettings.value(
++        _key_content_sel_cleanup_level, _key_content_sel_cleanup_level_def
++    ).toString().toUpper();
++    if (cleanup == QLatin1String("CAUTIOUS")) {
++        despeckleLevel = Despeckle::CAUTIOUS;
++    } else if (cleanup == QLatin1String("AGGRESSIVE")) {
++        despeckleLevel = Despeckle::AGGRESSIVE;
++    }
++
+     if (cli.hasContentRect()) {
+         despeckleLevel = cli.getContentDetection();
+     }
+diff --git a/src/core/filters/select_content/OptionsWidget.cpp b/src/core/filters/select_content/OptionsWidget.cpp
+index cdfd35a..893468b 100644
+--- a/src/core/filters/select_content/OptionsWidget.cpp
++++ b/src/core/filters/select_content/OptionsWidget.cpp
+@@ -50,14 +50,39 @@ OptionsWidget::OptionsWidget(
+     connect(rightBorder, SIGNAL(valueChanged(double)), this, SLOT(borderChanged()));
+     connect(topBorder, SIGNAL(valueChanged(double)), this, SLOT(borderChanged()));
+     connect(bottomBorder, SIGNAL(valueChanged(double)), this, SLOT(borderChanged()));
+-    connect(contentPadding, SIGNAL(valueChanged(double)), this, SLOT(contentPaddingChanged(double)));
++    connect(contentPaddingTop, SIGNAL(valueChanged(double)), this, SLOT(contentPaddingChanged(double)));
++    connect(contentPaddingBottom, SIGNAL(valueChanged(double)), this, SLOT(contentPaddingChanged(double)));
++    connect(contentPaddingLeft, SIGNAL(valueChanged(double)), this, SLOT(contentPaddingChanged(double)));
++    connect(contentPaddingRight, SIGNAL(valueChanged(double)), this, SLOT(contentPaddingChanged(double)));
+     connect(sparseProtection, SIGNAL(toggled(bool)), this, SLOT(sparseProtectionChanged()));
+     connect(sparseTolerance, SIGNAL(valueChanged(int)), this, SLOT(sparseProtectionChanged()));
++    connect(contentCleanup, SIGNAL(currentIndexChanged(int)), this, SLOT(contentDetectionSettingsChanged()));
++    connect(contentWolfThreshold, SIGNAL(valueChanged(int)), this, SLOT(contentDetectionSettingsChanged()));
+ 
+     m_force_reload = QSettings().value(_key_content_sel_STE_tweak, _key_content_sel_STE_tweak_def).toBool();
+-    contentPadding->setValue(QSettings().value(_key_content_sel_content_padding_mm, _key_content_sel_content_padding_mm_def).toDouble());
++    QSettings paddingSettings;
++    const double legacyPadding = paddingSettings.value(
++        _key_content_sel_content_padding_mm, _key_content_sel_content_padding_mm_def
++    ).toDouble();
++    contentPaddingTop->setValue(paddingSettings.value(_key_content_sel_padding_top_mm, legacyPadding).toDouble());
++    contentPaddingBottom->setValue(paddingSettings.value(_key_content_sel_padding_bottom_mm, legacyPadding).toDouble());
++    contentPaddingLeft->setValue(paddingSettings.value(_key_content_sel_padding_left_mm, legacyPadding).toDouble());
++    contentPaddingRight->setValue(paddingSettings.value(_key_content_sel_padding_right_mm, legacyPadding).toDouble());
+     sparseProtection->setChecked(QSettings().value(_key_content_sel_sparse_protection, _key_content_sel_sparse_protection_def).toBool());
+     sparseTolerance->setValue(QSettings().value(_key_content_sel_sparse_tolerance_percent, _key_content_sel_sparse_tolerance_percent_def).toInt());
++    const QString cleanup = paddingSettings.value(
++        _key_content_sel_cleanup_level, _key_content_sel_cleanup_level_def
++    ).toString().toUpper();
++    if (cleanup == QLatin1String("CAUTIOUS")) {
++        contentCleanup->setCurrentIndex(0);
++    } else if (cleanup == QLatin1String("AGGRESSIVE")) {
++        contentCleanup->setCurrentIndex(2);
++    } else {
++        contentCleanup->setCurrentIndex(1);
++    }
++    contentWolfThreshold->setValue(paddingSettings.value(
++        _key_content_sel_wolf_lower_bound, _key_content_sel_wolf_lower_bound_def
++    ).toInt());
+     sparseTolerance->setEnabled(sparseProtection->isChecked());
+ }
+ 
+@@ -242,7 +267,17 @@ void OptionsWidget::borderChanged()
+ void
+ OptionsWidget::contentPaddingChanged(double value)
+ {
+-    QSettings().setValue(_key_content_sel_content_padding_mm, value);
++    Q_UNUSED(value);
++    QSettings settings;
++    const double top = contentPaddingTop->value();
++    const double bottom = contentPaddingBottom->value();
++    const double left = contentPaddingLeft->value();
++    const double right = contentPaddingRight->value();
++    settings.setValue(_key_content_sel_padding_top_mm, top);
++    settings.setValue(_key_content_sel_padding_bottom_mm, bottom);
++    settings.setValue(_key_content_sel_padding_left_mm, left);
++    settings.setValue(_key_content_sel_padding_right_mm, right);
++    settings.setValue(_key_content_sel_content_padding_mm, qMax(qMax(top, bottom), qMax(left, right)));
+ 
+     // ScanTailor Archive: go through ScanTailor's native Select Content
+     // regeneration path.  commitCurrentParams() deliberately stores empty
+@@ -268,6 +303,25 @@ OptionsWidget::sparseProtectionChanged()
+     }
+ }
+ 
++void
++OptionsWidget::contentDetectionSettingsChanged()
++{
++    QSettings settings;
++    QString cleanup = QStringLiteral("NORMAL");
++    if (contentCleanup->currentIndex() == 0) {
++        cleanup = QStringLiteral("CAUTIOUS");
++    } else if (contentCleanup->currentIndex() == 2) {
++        cleanup = QStringLiteral("AGGRESSIVE");
++    }
++    settings.setValue(_key_content_sel_cleanup_level, cleanup);
++    settings.setValue(_key_content_sel_wolf_lower_bound, contentWolfThreshold->value());
++
++    if (m_uiData.contentDetection() && m_uiData.mode() == MODE_AUTO) {
++        commitCurrentParams();
++        emit reloadRequested();
++    }
++}
++
+ void
+ OptionsWidget::updateModeIndication(AutoManualMode const mode)
+ {
+diff --git a/src/core/filters/select_content/OptionsWidget.h b/src/core/filters/select_content/OptionsWidget.h
+index 290da09..0093c5e 100644
+--- a/src/core/filters/select_content/OptionsWidget.h
++++ b/src/core/filters/select_content/OptionsWidget.h
+@@ -139,6 +139,7 @@ private slots:
+     void borderChanged();
+     void contentPaddingChanged(double value);
+     void sparseProtectionChanged();
++    void contentDetectionSettingsChanged();
+ 
+ private:
+     void updateModeIndication(AutoManualMode const mode);
+diff --git a/src/core/filters/select_content/Task.cpp b/src/core/filters/select_content/Task.cpp
+index 822085d..f4c09a0 100644
+--- a/src/core/filters/select_content/Task.cpp
++++ b/src/core/filters/select_content/Task.cpp
+@@ -154,16 +154,27 @@ Task::process(TaskStatus const& status, FilterData const& data)
+             // box.  MANUAL rectangles never enter this branch and therefore
+             // remain untouched.  Keep the enlargement in physical units so
+             // the same setting behaves consistently at different source DPI.
+-            const double padding_mm = QSettings().value(
++            QSettings archiveSettings;
++            const double legacy_padding = archiveSettings.value(
+                 _key_content_sel_content_padding_mm, _key_content_sel_content_padding_mm_def
+             ).toDouble();
+-            if (padding_mm > 0.0 && content_rect.isValid() && !content_rect.isEmpty()) {
++            const double pad_top_mm = archiveSettings.value(_key_content_sel_padding_top_mm, legacy_padding).toDouble();
++            const double pad_bottom_mm = archiveSettings.value(_key_content_sel_padding_bottom_mm, legacy_padding).toDouble();
++            const double pad_left_mm = archiveSettings.value(_key_content_sel_padding_left_mm, legacy_padding).toDouble();
++            const double pad_right_mm = archiveSettings.value(_key_content_sel_padding_right_mm, legacy_padding).toDouble();
++            if ((pad_top_mm > 0.0 || pad_bottom_mm > 0.0 || pad_left_mm > 0.0 || pad_right_mm > 0.0)
++                && content_rect.isValid() && !content_rect.isEmpty()) {
+                 PhysSizeCalc const size_calc(data.xform());
+                 QSizeF const content_mm(size_calc.sizeMM(content_rect));
+                 if (content_mm.width() > 0.0 && content_mm.height() > 0.0) {
+-                    const double pad_x = padding_mm * content_rect.width() / content_mm.width();
+-                    const double pad_y = padding_mm * content_rect.height() / content_mm.height();
+-                    content_rect.adjust(-pad_x, -pad_y, pad_x, pad_y);
++                    const double px_per_mm_x = content_rect.width() / content_mm.width();
++                    const double px_per_mm_y = content_rect.height() / content_mm.height();
++                    content_rect.adjust(
++                        -pad_left_mm * px_per_mm_x,
++                        -pad_top_mm * px_per_mm_y,
++                        pad_right_mm * px_per_mm_x,
++                        pad_bottom_mm * px_per_mm_y
++                    );
+ 
+                     // Never create pixels beyond the physical page box.
+                     content_rect = content_rect.intersected(page_rect);
+diff --git a/src/core/filters/select_content/ui/SelectContentOptionsWidget.ui b/src/core/filters/select_content/ui/SelectContentOptionsWidget.ui
+index 46128ff..ee8476d 100644
+--- a/src/core/filters/select_content/ui/SelectContentOptionsWidget.ui
++++ b/src/core/filters/select_content/ui/SelectContentOptionsWidget.ui
+@@ -233,32 +233,102 @@
+     </widget>
+    </item>
+    <item>
+-    <widget class="QGroupBox" name="contentPaddingBox">
++    <widget class="QGroupBox" name="contentDetectionTuningBox">
+      <property name="title">
+-      <string>Content safety margin</string>
++      <string>Content Box - auto detection</string>
+      </property>
+-     <layout class="QHBoxLayout" name="contentPaddingLayout">
+-      <item>
+-       <widget class="QLabel" name="contentPaddingLabel">
++     <layout class="QFormLayout" name="contentDetectionTuningLayout">
++      <item row="0" column="0">
++       <widget class="QLabel" name="contentCleanupLabel">
+         <property name="text">
+-         <string>Extra margin:</string>
++         <string>Noise filter:</string>
+         </property>
+        </widget>
+       </item>
+-      <item>
+-       <widget class="QDoubleSpinBox" name="contentPadding">
+-        <property name="suffix">
+-         <string> mm</string>
+-        </property>
+-        <property name="decimals">
+-         <number>1</number>
+-        </property>
+-        <property name="maximum">
+-         <double>50.000000000000000</double>
++      <item row="0" column="1">
++       <widget class="QComboBox" name="contentCleanup">
++        <item><property name="text"><string>Cautious</string></property></item>
++        <item><property name="text"><string>Normal</string></property></item>
++        <item><property name="text"><string>Aggressive</string></property></item>
++       </widget>
++      </item>
++      <item row="1" column="0">
++       <widget class="QLabel" name="contentWolfThresholdLabel">
++        <property name="text">
++         <string>Binarization threshold:</string>
+         </property>
+-        <property name="singleStep">
+-         <double>0.500000000000000</double>
++       </widget>
++      </item>
++      <item row="1" column="1">
++       <widget class="QSpinBox" name="contentWolfThreshold">
++        <property name="toolTip">
++         <string>ScanTailor default is 50. Try 30-40 to make isolated dark specks less influential.</string>
+         </property>
++        <property name="minimum"><number>1</number></property>
++        <property name="maximum"><number>120</number></property>
++        <property name="singleStep"><number>5</number></property>
++        <property name="value"><number>50</number></property>
++       </widget>
++      </item>
++     </layout>
++    </widget>
++   </item>
++   <item>
++    <widget class="QGroupBox" name="contentPaddingBox">
++     <property name="title">
++      <string>Content safety margin</string>
++     </property>
++     <layout class="QGridLayout" name="contentPaddingLayout">
++      <item row="0" column="0">
++       <widget class="QLabel" name="contentPaddingTopLabel">
++        <property name="text"><string>Top:</string></property>
++       </widget>
++      </item>
++      <item row="0" column="1">
++       <widget class="QDoubleSpinBox" name="contentPaddingTop">
++        <property name="suffix"><string> mm</string></property>
++        <property name="decimals"><number>1</number></property>
++        <property name="maximum"><double>50.000000000000000</double></property>
++        <property name="singleStep"><double>0.500000000000000</double></property>
++       </widget>
++      </item>
++      <item row="1" column="0">
++       <widget class="QLabel" name="contentPaddingBottomLabel">
++        <property name="text"><string>Bottom:</string></property>
++       </widget>
++      </item>
++      <item row="1" column="1">
++       <widget class="QDoubleSpinBox" name="contentPaddingBottom">
++        <property name="suffix"><string> mm</string></property>
++        <property name="decimals"><number>1</number></property>
++        <property name="maximum"><double>50.000000000000000</double></property>
++        <property name="singleStep"><double>0.500000000000000</double></property>
++       </widget>
++      </item>
++      <item row="2" column="0">
++       <widget class="QLabel" name="contentPaddingLeftLabel">
++        <property name="text"><string>Left:</string></property>
++       </widget>
++      </item>
++      <item row="2" column="1">
++       <widget class="QDoubleSpinBox" name="contentPaddingLeft">
++        <property name="suffix"><string> mm</string></property>
++        <property name="decimals"><number>1</number></property>
++        <property name="maximum"><double>50.000000000000000</double></property>
++        <property name="singleStep"><double>0.500000000000000</double></property>
++       </widget>
++      </item>
++      <item row="3" column="0">
++       <widget class="QLabel" name="contentPaddingRightLabel">
++        <property name="text"><string>Right:</string></property>
++       </widget>
++      </item>
++      <item row="3" column="1">
++       <widget class="QDoubleSpinBox" name="contentPaddingRight">
++        <property name="suffix"><string> mm</string></property>
++        <property name="decimals"><number>1</number></property>
++        <property name="maximum"><double>50.000000000000000</double></property>
++        <property name="singleStep"><double>0.500000000000000</double></property>
+        </widget>
+       </item>
+      </layout>
+diff --git a/src/core/settings/ini_keys.h b/src/core/settings/ini_keys.h
+index a977d1f..13a1868 100644
+--- a/src/core/settings/ini_keys.h
++++ b/src/core/settings/ini_keys.h
+@@ -142,6 +142,18 @@ static const char* _key_content_sel_content_color = "content_selection/content_c
+ static const char* _key_content_sel_content_color_def = "#320000ff";
+ static const char* _key_content_sel_content_padding_mm = "content_selection/padding_mm";
+ static const double _key_content_sel_content_padding_mm_def = 0.0;
++static const char* _key_content_sel_padding_top_mm = "content_selection/padding_top_mm";
++static const double _key_content_sel_padding_top_mm_def = 0.0;
++static const char* _key_content_sel_padding_bottom_mm = "content_selection/padding_bottom_mm";
++static const double _key_content_sel_padding_bottom_mm_def = 0.0;
++static const char* _key_content_sel_padding_left_mm = "content_selection/padding_left_mm";
++static const double _key_content_sel_padding_left_mm_def = 0.0;
++static const char* _key_content_sel_padding_right_mm = "content_selection/padding_right_mm";
++static const double _key_content_sel_padding_right_mm_def = 0.0;
++static const char* _key_content_sel_cleanup_level = "content_selection/cleanup_level";
++static const char* _key_content_sel_cleanup_level_def = "NORMAL";
++static const char* _key_content_sel_wolf_lower_bound = "content_selection/wolf_lower_bound";
++static const int _key_content_sel_wolf_lower_bound_def = 50;
+ static const char* _key_content_sel_sparse_protection = "content_selection/sparse_page_protection";
+ static const bool _key_content_sel_sparse_protection_def = true;
+ static const char* _key_content_sel_sparse_tolerance_percent = "content_selection/sparse_tolerance_percent";
+@@ -182,6 +194,8 @@ static const char* _key_margins_linked_hor = "margins/leftRightLinked";
+ static const bool _key_margins_linked_hor_def = true;
+ static const char* _key_margins_linked_ver = "margins/topBottomLinked";
+ static const bool _key_margins_linked_ver_def = true;
++static const char* _key_margins_fill_color = "margins/fill_color";
++static const char* _key_margins_fill_color_def = "WHITE";
+ 
+ /* Page Layout: Alignment */
+ 
+diff --git a/src/core/filters/output/CacheDrivenTask.cpp b/src/core/filters/output/CacheDrivenTask.cpp
+index 133836c..a0bd30d 100644
+--- a/src/core/filters/output/CacheDrivenTask.cpp
++++ b/src/core/filters/output/CacheDrivenTask.cpp
+@@ -32,12 +32,14 @@
+ #include "Utils.h"
+ #include "AbstractFilterDataCollector.h"
+ #include "ThumbnailCollector.h"
++#include "settings/ini_keys.h"
+ #include <QString>
+ #include <QFileInfo>
+ #include <QRect>
+ #include <QRectF>
+ #include <QTransform>
+ #include <QDebug>
++#include <QSettings>
+ 
+ namespace output
+ {
+@@ -91,6 +93,9 @@ CacheDrivenTask::process(
+                 params.outputDpi(), params.colorParams(), params.despeckleLevel(),
+                 new_xform, content_rect_phys
+             );
++            const QString archiveMarginFill = QSettings().value(
++                _key_margins_fill_color, _key_margins_fill_color_def
++            ).toString().toUpper();
+             OutputImageParams const new_output_image_params(
+                 generator.outputImageSize(), generator.outputContentRect(),
+                 new_xform, params.outputDpi(), params.colorParams(),
+@@ -98,7 +103,8 @@ CacheDrivenTask::process(
+                 params.depthPerception(), params.despeckleLevel(),
+                 params.colorParams().colorMode() == ColorParams::BLACK_AND_WHITE ?
+                             GlobalStaticSettings::m_tiff_compr_method_bw :
+-                            GlobalStaticSettings::m_tiff_compr_method_color
++                            GlobalStaticSettings::m_tiff_compr_method_color,
++                archiveMarginFill
+             );
+ 
+             if (!stored_output_params->outputImageParams().matches(new_output_image_params)) {
