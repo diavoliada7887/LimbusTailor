@@ -1,0 +1,90 @@
+name: tmp regenerate 0006 outside-source fill
+
+on:
+  push:
+    branches:
+      - work/outside-source-fill
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout LimbusTailor
+        uses: actions/checkout@v4
+        with:
+          ref: work/outside-source-fill
+          fetch-depth: 0
+
+      - name: Regenerate patch 0006 with outside-source fill fix
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          if git log -1 --pretty=%B | grep -Fq 'fix: use selected fill for outside-source pixels'; then
+            echo 'Fix commit already present; nothing to do.'
+            exit 0
+          fi
+
+          rm -rf /tmp/scantailor-universal
+          git clone --depth 1 --branch 0.2.13 https://github.com/trufanov-nok/scantailor-universal.git /tmp/scantailor-universal
+          cd /tmp/scantailor-universal
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          PATCH_DIR="$GITHUB_WORKSPACE/patches"
+          git apply "$PATCH_DIR/0001-output-formats.patch"
+          git apply "$PATCH_DIR/0002-content-padding-mm.patch"
+          git apply "$PATCH_DIR/0003-sparse-page-protection.patch"
+          git apply "$PATCH_DIR/0004-modern-windows-portable-build.patch"
+          git apply "$PATCH_DIR/0005-modern-exiv2-windows.patch"
+          git add -A
+          git commit -m 'post-0005 baseline'
+
+          git apply "$PATCH_DIR/0006-hard-page-boundary-and-output-ui.patch"
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('/tmp/scantailor-universal/src/core/filters/output/OutputGenerator.cpp')
+          text = path.read_text(encoding='utf-8')
+
+          start = text.index('OutputGenerator::processAsIs(')
+          end = text.index('OutputGenerator::processWithoutDewarping', start)
+          chunk = text[start:end]
+
+          anchor = '    QColor const bg_color(dominant_gray, dominant_gray, dominant_gray);\n'
+          if chunk.count(anchor) != 1:
+              raise RuntimeError(f'Expected exactly one bg_color anchor in processAsIs, got {chunk.count(anchor)}')
+
+          insertion = anchor + '''\n    // LimbusTailor: pixels outside the physical source image are artificial\n    // layout area. Never extend the detected paper background into them.\n    QSettings archiveSettings;\n    const QString marginFillName = archiveSettings.value(\n        _key_margins_fill_color, _key_margins_fill_color_def\n    ).toString().toUpper();\n    const QColor outsideColor = marginFillName == QLatin1String("BLACK")\n        ? QColor(Qt::black) : QColor(Qt::white);\n'''
+          chunk = chunk.replace(anchor, insertion, 1)
+
+          old = 'OutsidePixels::assumeColor(bg_color)'
+          count = chunk.count(old)
+          if count != 2:
+              raise RuntimeError(f'Expected exactly two outside-pixel bg_color uses in processAsIs, got {count}')
+          chunk = chunk.replace(old, 'OutsidePixels::assumeColor(outsideColor)')
+
+          text = text[:start] + chunk + text[end:]
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          git diff HEAD --binary > /tmp/0006-new.patch
+          test -s /tmp/0006-new.patch
+
+          git reset --hard HEAD
+          git clean -fd
+          git apply --check /tmp/0006-new.patch
+          git apply /tmp/0006-new.patch
+
+          cp /tmp/0006-new.patch "$PATCH_DIR/0006-hard-page-boundary-and-output-ui.patch"
+
+          cd "$GITHUB_WORKSPACE"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add patches/0006-hard-page-boundary-and-output-ui.patch
+          git commit -m 'fix: use selected fill for outside-source pixels'
+          git push origin HEAD:work/outside-source-fill
