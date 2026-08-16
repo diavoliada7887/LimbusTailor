@@ -1,0 +1,40 @@
+diff --git a/src/core/filters/output/ImageMetadataCopier.cpp b/src/core/filters/output/ImageMetadataCopier.cpp
+index 2867c8d..94b47e1 100644
+--- a/src/core/filters/output/ImageMetadataCopier.cpp
++++ b/src/core/filters/output/ImageMetadataCopier.cpp
+@@ -7,7 +7,7 @@ bool
+ ImageMetadataCopier::iccProfileDefined(const QString& filename)
+ {
+ #ifdef _WIN32
+-    const Exiv2::Image::AutoPtr src_image = Exiv2::ImageFactory::open(filename.toStdWString());
++    const Exiv2::Image::UniquePtr src_image = Exiv2::ImageFactory::open(filename.toUtf8().constData());
+ #else
+     const Exiv2::Image::AutoPtr src_image = Exiv2::ImageFactory::open(filename.toStdString());
+ #endif
+@@ -25,7 +25,7 @@ ImageMetadataCopier::copyMetadata(const QString& src_img,
+     try
+     {
+ #ifdef _WIN32
+-		const Exiv2::Image::AutoPtr src_image = Exiv2::ImageFactory::open(src_img.toStdWString());
++		const Exiv2::Image::UniquePtr src_image = Exiv2::ImageFactory::open(src_img.toUtf8().constData());
+ #else
+ 		const Exiv2::Image::AutoPtr src_image = Exiv2::ImageFactory::open(src_img.toStdString());
+ #endif
+@@ -36,12 +36,16 @@ ImageMetadataCopier::copyMetadata(const QString& src_img,
+             if (src_image->iccProfileDefined()) {
+                 src_image->iccProfile();
+ #ifdef _WIN32
+-				const Exiv2::Image::AutoPtr dst_image = Exiv2::ImageFactory::open(dst_img.toStdWString());
++				const Exiv2::Image::UniquePtr dst_image = Exiv2::ImageFactory::open(dst_img.toUtf8().constData());
+ #else
+ 				const Exiv2::Image::AutoPtr dst_image = Exiv2::ImageFactory::open(dst_img.toStdString());
+ #endif
+                 dst_image->readMetadata();
++#ifdef _WIN32
++                dst_image->setIccProfile(Exiv2::DataBuf(src_image->iccProfile()));
++#else
+                 dst_image->setIccProfile(*src_image->iccProfile());
++#endif
+                 dst_image->writeMetadata();
+                 return true;
+             }
