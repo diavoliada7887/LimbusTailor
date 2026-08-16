@@ -1,0 +1,147 @@
+diff --git a/src/core/filters/select_content/OptionsWidget.cpp b/src/core/filters/select_content/OptionsWidget.cpp
+index dbd940c..8f55aa1 100644
+--- a/src/core/filters/select_content/OptionsWidget.cpp
++++ b/src/core/filters/select_content/OptionsWidget.cpp
+@@ -50,8 +50,10 @@ OptionsWidget::OptionsWidget(
+     connect(rightBorder, SIGNAL(valueChanged(double)), this, SLOT(borderChanged()));
+     connect(topBorder, SIGNAL(valueChanged(double)), this, SLOT(borderChanged()));
+     connect(bottomBorder, SIGNAL(valueChanged(double)), this, SLOT(borderChanged()));
++    connect(contentPadding, SIGNAL(valueChanged(double)), this, SLOT(contentPaddingChanged(double)));
+ 
+     m_force_reload = QSettings().value(_key_content_sel_STE_tweak, _key_content_sel_STE_tweak_def).toBool();
++    contentPadding->setValue(QSettings().value(_key_content_sel_content_padding_mm, _key_content_sel_content_padding_mm_def).toDouble());
+ }
+ 
+ OptionsWidget::~OptionsWidget()
+@@ -232,6 +234,23 @@ void OptionsWidget::borderChanged()
+     }
+ }
+ 
++void
++OptionsWidget::contentPaddingChanged(double value)
++{
++    QSettings().setValue(_key_content_sel_content_padding_mm, value);
++
++    // ScanTailor Archive: go through ScanTailor's native Select Content
++    // regeneration path.  commitCurrentParams() deliberately stores empty
++    // Dependencies(), exactly like the existing page-border controls do.
++    // On reload Task::process() therefore rebuilds the AUTO content box and
++    // applies the requested safety area to a fresh detector result instead of
++    // silently reusing the old cached rectangle.
++    if (m_uiData.contentDetection() && m_uiData.mode() == MODE_AUTO) {
++        commitCurrentParams();
++        emit reloadRequested();
++    }
++}
++
+ void
+ OptionsWidget::updateModeIndication(AutoManualMode const mode)
+ {
+diff --git a/src/core/filters/select_content/OptionsWidget.h b/src/core/filters/select_content/OptionsWidget.h
+index cf03e1b..8e2b729 100644
+--- a/src/core/filters/select_content/OptionsWidget.h
++++ b/src/core/filters/select_content/OptionsWidget.h
+@@ -137,6 +137,7 @@ private slots:
+     void pageDetectionEnabled(void);
+ 
+     void borderChanged();
++    void contentPaddingChanged(double value);
+ 
+ private:
+     void updateModeIndication(AutoManualMode const mode);
+diff --git a/src/core/filters/select_content/Task.cpp b/src/core/filters/select_content/Task.cpp
+index 61754b8..95fa2e6 100644
+--- a/src/core/filters/select_content/Task.cpp
++++ b/src/core/filters/select_content/Task.cpp
+@@ -34,6 +34,8 @@
+ #include "ImageTransformation.h"
+ #include "PhysSizeCalc.h"
+ #include "filters/page_layout/Task.h"
++#include "settings/ini_keys.h"
++#include <QSettings>
+ #include <QObject>
+ #include <QTransform>
+ #include <QDebug>
+@@ -147,6 +149,26 @@ Task::process(TaskStatus const& status, FilterData const& data)
+         if (regeneration_enforced || (new_params.isContentDetectionEnabled() && new_params.mode() == MODE_AUTO)) {
+             //std::cout << "ContentBoxFinder" << std::endl;
+             content_rect = ContentBoxFinder::findContentBox(status, data, page_rect, m_ptrDbg.get());
++
++            // ScanTailor Archive: expand only a freshly detected AUTO content
++            // box.  MANUAL rectangles never enter this branch and therefore
++            // remain untouched.  Keep the enlargement in physical units so
++            // the same setting behaves consistently at different source DPI.
++            const double padding_mm = QSettings().value(
++                _key_content_sel_content_padding_mm, _key_content_sel_content_padding_mm_def
++            ).toDouble();
++            if (padding_mm > 0.0 && content_rect.isValid() && !content_rect.isEmpty()) {
++                PhysSizeCalc const size_calc(data.xform());
++                QSizeF const content_mm(size_calc.sizeMM(content_rect));
++                if (content_mm.width() > 0.0 && content_mm.height() > 0.0) {
++                    const double pad_x = padding_mm * content_rect.width() / content_mm.width();
++                    const double pad_y = padding_mm * content_rect.height() / content_mm.height();
++                    content_rect.adjust(-pad_x, -pad_y, pad_x, pad_y);
++
++                    // Never create pixels beyond the physical page box.
++                    content_rect = content_rect.intersected(page_rect);
++                }
++            }
+         } else if (new_params.isContentDetectionEnabled() && new_params.mode() == MODE_MANUAL &&
+                    // allow isNull as content rect may be deleted from page
+                    (new_params.contentRect().isValid() || new_params.contentRect().isNull())) {
+diff --git a/src/core/filters/select_content/ui/SelectContentOptionsWidget.ui b/src/core/filters/select_content/ui/SelectContentOptionsWidget.ui
+index b3566d4..49e5b5e 100644
+--- a/src/core/filters/select_content/ui/SelectContentOptionsWidget.ui
++++ b/src/core/filters/select_content/ui/SelectContentOptionsWidget.ui
+@@ -232,6 +232,38 @@
+      </layout>
+     </widget>
+    </item>
++   <item>
++    <widget class="QGroupBox" name="contentPaddingBox">
++     <property name="title">
++      <string>Content safety margin</string>
++     </property>
++     <layout class="QHBoxLayout" name="contentPaddingLayout">
++      <item>
++       <widget class="QLabel" name="contentPaddingLabel">
++        <property name="text">
++         <string>Extra margin:</string>
++        </property>
++       </widget>
++      </item>
++      <item>
++       <widget class="QDoubleSpinBox" name="contentPadding">
++        <property name="suffix">
++         <string> mm</string>
++        </property>
++        <property name="decimals">
++         <number>1</number>
++        </property>
++        <property name="maximum">
++         <double>50.000000000000000</double>
++        </property>
++        <property name="singleStep">
++         <double>0.500000000000000</double>
++        </property>
++       </widget>
++      </item>
++     </layout>
++    </widget>
++   </item>
+    <item>
+     <widget class="QGroupBox" name="scopeBox">
+      <property name="title">
+diff --git a/src/core/settings/ini_keys.h b/src/core/settings/ini_keys.h
+index f3e29ee..f6d5d0a 100644
+--- a/src/core/settings/ini_keys.h
++++ b/src/core/settings/ini_keys.h
+@@ -140,6 +140,8 @@ static const char* _key_content_sel_page_detection_borders = "page_detection/bor
+ static const bool _key_content_sel_page_detection_borders_def = false;
+ static const char* _key_content_sel_content_color = "content_selection/content_color";
+ static const char* _key_content_sel_content_color_def = "#320000ff";
++static const char* _key_content_sel_content_padding_mm = "content_selection/padding_mm";
++static const double _key_content_sel_content_padding_mm_def = 0.0;
+ 
+ static const char* _key_content_sel_page_detection_fine_tune_corners_is_on_by_def = "page_detection/fine_tune_page_corners/default";
+ static const bool _key_content_sel_page_detection_fine_tune_corners_is_on_by_def_def = false;
