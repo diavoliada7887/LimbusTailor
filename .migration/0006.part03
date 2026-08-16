@@ -1,0 +1,200 @@
++    }
++
++    const LinearFit left = fitLine(leftPts, true);
++    const LinearFit right = fitLine(rightPts, true);
++    const LinearFit top = fitLine(topPts, false);
++    const LinearFit bottom = fitLine(bottomPts, false);
++    if (!left.valid || !right.valid || !top.valid || !bottom.valid) {
++        return QPolygonF();
++    }
++
++    QPolygonF poly;
++    poly << intersectVerticalHorizontal(left, top)
++         << intersectVerticalHorizontal(right, top)
++         << intersectVerticalHorizontal(right, bottom)
++         << intersectVerticalHorizontal(left, bottom);
++
++    const QRectF bounds = poly.boundingRect();
++    if (!bounds.isValid() || bounds.width() < w * 0.25 || bounds.height() < h * 0.25
++        || bounds.left() < -w * 0.1 || bounds.top() < -h * 0.1
++        || bounds.right() > w * 1.1 || bounds.bottom() > h * 1.1) {
++        return QPolygonF();
++    }
++
++    if (scale < 1.0) {
++        QTransform back;
++        back.scale(1.0 / scale, 1.0 / scale);
++        poly = back.map(poly);
++    }
++    return poly;
++}
++
++Qt::GlobalColor archiveMarginFillColor()
++{
++    QSettings settings;
++    const QString fillName = settings.value(
++        _key_margins_fill_color, _key_margins_fill_color_def
++    ).toString().toUpper();
++    return fillName == QLatin1String("BLACK") ? Qt::black : Qt::white;
++}
++
++void protectScannerBackground(QImage& image, Qt::GlobalColor fillColor)
++{
++    QSettings settings;
++    const double paddingMm = settings.value(
++        _key_content_sel_content_padding_mm, _key_content_sel_content_padding_mm_def
++    ).toDouble();
++    if (paddingMm <= 0.0 || image.isNull()) {
++        return;
++    }
++
++    const QPolygonF page = detectPhysicalPagePolygon(image);
++    if (page.size() != 4) {
++        return;
++    }
++
++    QPainterPath outside;
++    outside.setFillRule(Qt::OddEvenFill);
++    outside.addRect(QRectF(image.rect()));
++    QPainterPath inside;
++    inside.addPolygon(page);
++    inside.closeSubpath();
++    outside.addPath(inside);
++
++    QPainter painter(&image);
++    painter.setRenderHint(QPainter::Antialiasing, false);
++    painter.fillPath(outside, fillColor);
++}
++
++void fillArchiveLayoutMargins(QImage& image, QRect const& contentRect, Qt::GlobalColor fillColor)
++{
++    if (image.isNull()) {
++        return;
++    }
++    const QRect clippedContent = contentRect.intersected(image.rect());
++    QPainterPath outside;
++    outside.setFillRule(Qt::OddEvenFill);
++    outside.addRect(QRectF(image.rect()));
++    if (!clippedContent.isEmpty()) {
++        outside.addRect(QRectF(clippedContent));
++    }
++    QPainter painter(&image);
++    painter.setRenderHint(QPainter::Antialiasing, false);
++    painter.fillPath(outside, fillColor);
++}
++
+ bool writeFinalOutputImage(QString const& filePath, QImage const& image, QString* tiffCompressionUsed)
+ {
+     const QString format = GlobalStaticSettings::m_output_image_format;
+@@ -268,6 +527,10 @@ Task::process(
+         new_xform, content_rect_phys
+     );
+ 
++    const QString archiveMarginFill = QSettings().value(
++        _key_margins_fill_color, _key_margins_fill_color_def
++    ).toString().toUpper();
++
+     OutputImageParams new_output_image_params(
+         generator.outputImageSize(), generator.outputContentRect(),
+         new_xform, params.outputDpi(), params.colorParams(),
+@@ -275,7 +538,8 @@ Task::process(
+         params.depthPerception(), params.despeckleLevel(),
+         params.colorParams().colorMode() == ColorParams::BLACK_AND_WHITE ?
+                     GlobalStaticSettings::m_tiff_compr_method_bw :
+-                    GlobalStaticSettings::m_tiff_compr_method_color);
++                    GlobalStaticSettings::m_tiff_compr_method_color,
++        archiveMarginFill);
+ 
+ //begin of modified by monday2000
+ //Quadro_Zoner
+@@ -489,6 +753,11 @@ Task::process(
+ 
+         QString TiffCompressionUsed;
+ 
++        // ScanTailor Archive: literal Page Layout paint.
++        const Qt::GlobalColor archiveFill = archiveMarginFillColor();
++        protectScannerBackground(out_img, archiveFill);
++        fillArchiveLayoutMargins(out_img, generator.outputContentRect(), archiveFill);
++
+         if (!writeFinalOutputImage(out_file_path, out_img, &TiffCompressionUsed)) {
+             invalidate_params = true;
+         } else {
+diff --git a/src/core/filters/output/ui/OutputOptionsWidget.ui b/src/core/filters/output/ui/OutputOptionsWidget.ui
+index 2031c2f..9546339 100644
+--- a/src/core/filters/output/ui/OutputOptionsWidget.ui
++++ b/src/core/filters/output/ui/OutputOptionsWidget.ui
+@@ -70,6 +70,45 @@
+      </property>
+     </widget>
+    </item>
++   <item>
++    <widget class="QGroupBox" name="archiveOutputBox">
++     <property name="title">
++      <string>Archive output</string>
++     </property>
++     <layout class="QFormLayout" name="archiveOutputLayout">
++      <item row="0" column="0">
++       <widget class="QLabel" name="archiveOutputFormatLabel">
++        <property name="text">
++         <string>Format:</string>
++        </property>
++       </widget>
++      </item>
++      <item row="0" column="1">
++       <widget class="QComboBox" name="archiveOutputFormat"/>
++      </item>
++      <item row="1" column="0">
++       <widget class="QLabel" name="archiveJpegQualityLabel">
++        <property name="text">
++         <string>JPEG quality:</string>
++        </property>
++       </widget>
++      </item>
++      <item row="1" column="1">
++       <widget class="QSpinBox" name="archiveJpegQuality">
++        <property name="minimum">
++         <number>1</number>
++        </property>
++        <property name="maximum">
++         <number>100</number>
++        </property>
++        <property name="value">
++         <number>95</number>
++        </property>
++       </widget>
++      </item>
++     </layout>
++    </widget>
++   </item>
+    <item>
+     <widget class="QWidget" name="modePanel" native="true">
+      <property name="sizePolicy">
+diff --git a/src/core/filters/page_layout/OptionsWidget.cpp b/src/core/filters/page_layout/OptionsWidget.cpp
+index c714d12..cd21258 100644
+--- a/src/core/filters/page_layout/OptionsWidget.cpp
++++ b/src/core/filters/page_layout/OptionsWidget.cpp
+@@ -68,6 +68,15 @@ OptionsWidget::OptionsWidget(
+     updateLinkDisplay(topBottomLink, m_topBottomLinked);
+     updateLinkDisplay(leftRightLink, m_leftRightLinked);
+ 
++    QSettings archiveSettings;
++    marginFillColor->addItem(QStringLiteral("White"), QStringLiteral("WHITE"));
++    marginFillColor->addItem(QStringLiteral("Black"), QStringLiteral("BLACK"));
++    const QString marginFill = archiveSettings.value(
++        _key_margins_fill_color, _key_margins_fill_color_def
++    ).toString().toUpper();
++    const int marginFillIndex = marginFillColor->findData(marginFill);
++    marginFillColor->setCurrentIndex(marginFillIndex >= 0 ? marginFillIndex : 0);
++
+     connect(
+         unitsComboBox, SIGNAL(currentIndexChanged(int)),
+         this, SLOT(unitsChanged(int))
+@@ -108,6 +117,12 @@ OptionsWidget::OptionsWidget(
+         applyAlignmentBtn, SIGNAL(clicked()),
+         this, SLOT(showApplyAlignmentDialog())
+     );
++    connect(marginFillColor, QOverload<int>::of(&QComboBox::currentIndexChanged),
++            this, [this](int index) {
++        QSettings settings;
++        settings.setValue(_key_margins_fill_color, marginFillColor->itemData(index).toString());
++        emit reloadRequested();
