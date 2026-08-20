@@ -1,5 +1,5 @@
 diff --git a/src/core/filters/output/CacheDrivenTask.cpp b/src/core/filters/output/CacheDrivenTask.cpp
-index 133836c..a0bd30d 100644
+index 133836cf..a0bd30de 100644
 --- a/src/core/filters/output/CacheDrivenTask.cpp
 +++ b/src/core/filters/output/CacheDrivenTask.cpp
 @@ -32,12 +32,14 @@
@@ -38,7 +38,7 @@ index 133836c..a0bd30d 100644
  
              if (!stored_output_params->outputImageParams().matches(new_output_image_params)) {
 diff --git a/src/core/filters/output/OptionsWidget.cpp b/src/core/filters/output/OptionsWidget.cpp
-index 46f19e0..1e8d0b3 100644
+index 46f19e00..1e8d0b38 100644
 --- a/src/core/filters/output/OptionsWidget.cpp
 +++ b/src/core/filters/output/OptionsWidget.cpp
 @@ -63,6 +63,37 @@ OptionsWidget::OptionsWidget(
@@ -80,7 +80,7 @@ index 46f19e0..1e8d0b3 100644
  
      depthPerceptionSlider->setMinimum(qRound(DepthPerception::minValue() * 10));
 diff --git a/src/core/filters/output/OutputGenerator.cpp b/src/core/filters/output/OutputGenerator.cpp
-index 25f3e23..570386a 100644
+index 25f3e231..570386a9 100644
 --- a/src/core/filters/output/OutputGenerator.cpp
 +++ b/src/core/filters/output/OutputGenerator.cpp
 @@ -62,6 +62,7 @@
@@ -206,7 +206,7 @@ index 25f3e23..570386a 100644
          uint8_t const dominant_gray = reserveBlackAndWhite<uint8_t>(
                                            calcDominantBackgroundGrayLevel(input.grayImage())
 diff --git a/src/core/filters/output/OutputImageParams.cpp b/src/core/filters/output/OutputImageParams.cpp
-index 54578ab..743d124 100644
+index 54578aba..743d1248 100644
 --- a/src/core/filters/output/OutputImageParams.cpp
 +++ b/src/core/filters/output/OutputImageParams.cpp
 @@ -36,7 +36,8 @@ OutputImageParams::OutputImageParams(QSize const& out_image_size, QRect const& c
@@ -259,7 +259,7 @@ index 54578ab..743d124 100644
                            other.m_colorParams, other.m_despeckleLevel)) {
          return false;
 diff --git a/src/core/filters/output/OutputImageParams.h b/src/core/filters/output/OutputImageParams.h
-index 2ba0249..9f02cb7 100644
+index 2ba02490..9f02cb75 100644
 --- a/src/core/filters/output/OutputImageParams.h
 +++ b/src/core/filters/output/OutputImageParams.h
 @@ -50,7 +50,8 @@ public:
@@ -283,7 +283,7 @@ index 2ba0249..9f02cb7 100644
  
  } // namespace output
 diff --git a/src/core/filters/output/Task.cpp b/src/core/filters/output/Task.cpp
-index a74c29e..f5935d9 100644
+index a74c29ed..f5935d94 100644
 --- a/src/core/filters/output/Task.cpp
 +++ b/src/core/filters/output/Task.cpp
 @@ -71,6 +71,14 @@
@@ -593,7 +593,7 @@ index a74c29e..f5935d9 100644
              invalidate_params = true;
          } else {
 diff --git a/src/core/filters/output/ui/OutputOptionsWidget.ui b/src/core/filters/output/ui/OutputOptionsWidget.ui
-index 2031c2f..9546339 100644
+index 2031c2f3..95463391 100644
 --- a/src/core/filters/output/ui/OutputOptionsWidget.ui
 +++ b/src/core/filters/output/ui/OutputOptionsWidget.ui
 @@ -70,6 +70,45 @@
@@ -643,7 +643,7 @@ index 2031c2f..9546339 100644
      <widget class="QWidget" name="modePanel" native="true">
       <property name="sizePolicy">
 diff --git a/src/core/filters/page_layout/OptionsWidget.cpp b/src/core/filters/page_layout/OptionsWidget.cpp
-index c714d12..cd21258 100644
+index c714d127..cd212582 100644
 --- a/src/core/filters/page_layout/OptionsWidget.cpp
 +++ b/src/core/filters/page_layout/OptionsWidget.cpp
 @@ -68,6 +68,15 @@ OptionsWidget::OptionsWidget(
@@ -676,7 +676,7 @@ index c714d12..cd21258 100644
      unitsComboBox->setCurrentIndex(QSettings().value(_key_margins_default_units, _key_margins_default_units_def).toUInt());
  
 diff --git a/src/core/filters/page_layout/ui/PageLayoutOptionsWidget.ui b/src/core/filters/page_layout/ui/PageLayoutOptionsWidget.ui
-index aa1e559..9252e2a 100644
+index aa1e559b..9252e2ac 100644
 --- a/src/core/filters/page_layout/ui/PageLayoutOptionsWidget.ui
 +++ b/src/core/filters/page_layout/ui/PageLayoutOptionsWidget.ui
 @@ -68,6 +68,20 @@
@@ -701,7 +701,7 @@ index aa1e559..9252e2a 100644
         <widget class="QWidget" name="panelMarginsControls" native="true">
          <layout class="QHBoxLayout" name="horizontalLayout_2">
 diff --git a/src/core/filters/select_content/ContentBoxFinder.cpp b/src/core/filters/select_content/ContentBoxFinder.cpp
-index 570999e..33d558a 100644
+index 570999e5..33d558a4 100644
 --- a/src/core/filters/select_content/ContentBoxFinder.cpp
 +++ b/src/core/filters/select_content/ContentBoxFinder.cpp
 @@ -42,6 +42,8 @@
@@ -745,7 +745,7 @@ index 570999e..33d558a 100644
          despeckleLevel = cli.getContentDetection();
      }
 diff --git a/src/core/filters/select_content/OptionsWidget.cpp b/src/core/filters/select_content/OptionsWidget.cpp
-index cdfd35a..893468b 100644
+index cdfd35a7..893468bc 100644
 --- a/src/core/filters/select_content/OptionsWidget.cpp
 +++ b/src/core/filters/select_content/OptionsWidget.cpp
 @@ -50,14 +50,39 @@ OptionsWidget::OptionsWidget(
@@ -836,7 +836,7 @@ index cdfd35a..893468b 100644
  OptionsWidget::updateModeIndication(AutoManualMode const mode)
  {
 diff --git a/src/core/filters/select_content/OptionsWidget.h b/src/core/filters/select_content/OptionsWidget.h
-index 290da09..0093c5e 100644
+index 290da097..0093c5e6 100644
 --- a/src/core/filters/select_content/OptionsWidget.h
 +++ b/src/core/filters/select_content/OptionsWidget.h
 @@ -139,6 +139,7 @@ private slots:
@@ -848,10 +848,328 @@ index 290da09..0093c5e 100644
  private:
      void updateModeIndication(AutoManualMode const mode);
 diff --git a/src/core/filters/select_content/Task.cpp b/src/core/filters/select_content/Task.cpp
-index 822085d..f4c09a0 100644
+index 822085d7..4dce868b 100644
 --- a/src/core/filters/select_content/Task.cpp
 +++ b/src/core/filters/select_content/Task.cpp
-@@ -154,16 +154,27 @@ Task::process(TaskStatus const& status, FilterData const& data)
+@@ -39,12 +39,317 @@
+ #include <QObject>
+ #include <QTransform>
+ #include <QDebug>
++#include <QImage>
++#include <QPolygonF>
++#include <algorithm>
++#include <cmath>
++#include <limits>
++#include <vector>
+ 
+ #include <iostream>
+ 
+ namespace select_content
+ {
+ 
++namespace
++{
++struct ArchiveLinearFit
++{
++    double a = 0.0;
++    double b = 0.0;
++    bool valid = false;
++};
++
++ArchiveLinearFit archiveFitLine(std::vector<QPointF> const& points, bool xFromY)
++{
++    if (points.size() < 4) {
++        return ArchiveLinearFit();
++    }
++
++    auto solve = [xFromY](std::vector<QPointF> const& pts) {
++        ArchiveLinearFit fit;
++        double sumT = 0.0;
++        double sumV = 0.0;
++        double sumTT = 0.0;
++        double sumTV = 0.0;
++        for (QPointF const& p : pts) {
++            const double t = xFromY ? p.y() : p.x();
++            const double v = xFromY ? p.x() : p.y();
++            sumT += t;
++            sumV += v;
++            sumTT += t * t;
++            sumTV += t * v;
++        }
++        const double n = static_cast<double>(pts.size());
++        const double denom = n * sumTT - sumT * sumT;
++        if (std::abs(denom) < 1e-9) {
++            return fit;
++        }
++        fit.a = (n * sumTV - sumT * sumV) / denom;
++        fit.b = (sumV - fit.a * sumT) / n;
++        fit.valid = true;
++        return fit;
++    };
++
++    ArchiveLinearFit first = solve(points);
++    if (!first.valid) {
++        return first;
++    }
++
++    std::vector<double> residuals;
++    residuals.reserve(points.size());
++    for (QPointF const& p : points) {
++        const double t = xFromY ? p.y() : p.x();
++        const double v = xFromY ? p.x() : p.y();
++        residuals.push_back(std::abs(v - (first.a * t + first.b)));
++    }
++    std::vector<double> sorted = residuals;
++    std::sort(sorted.begin(), sorted.end());
++    const double median = sorted[sorted.size() / 2];
++    const double limit = std::max(3.0, median * 3.0);
++
++    std::vector<QPointF> filtered;
++    filtered.reserve(points.size());
++    for (size_t i = 0; i < points.size(); ++i) {
++        if (residuals[i] <= limit) {
++            filtered.push_back(points[i]);
++        }
++    }
++    return filtered.size() >= 4 ? solve(filtered) : first;
++}
++
++bool archiveFindBrightRun(QImage const& gray, int fixed, bool horizontal, bool reverse,
++                          int threshold, int* edge)
++{
++    const int length = horizontal ? gray.width() : gray.height();
++    const int run = std::max(4, length / 300);
++    int count = 0;
++
++    for (int step = 0; step < length; ++step) {
++        const int pos = reverse ? length - 1 - step : step;
++        const int x = horizontal ? pos : fixed;
++        const int y = horizontal ? fixed : pos;
++        if (qGray(gray.pixel(x, y)) >= threshold) {
++            ++count;
++            if (count >= run) {
++                *edge = reverse ? pos + run - 1 : pos - run + 1;
++                return true;
++            }
++        } else {
++            count = 0;
++        }
++    }
++    return false;
++}
++
++QPointF archiveIntersectLines(ArchiveLinearFit const& vertical,
++                              ArchiveLinearFit const& horizontal)
++{
++    const double denom = 1.0 - horizontal.a * vertical.a;
++    if (std::abs(denom) < 1e-9) {
++        return QPointF();
++    }
++    const double y = (horizontal.a * vertical.b + horizontal.b) / denom;
++    const double x = vertical.a * y + vertical.b;
++    return QPointF(x, y);
++}
++
++QPolygonF archiveDetectPhysicalPagePolygon(QImage const& image)
++{
++    if (image.width() < 64 || image.height() < 64) {
++        return QPolygonF();
++    }
++
++    const int maxDim = 1800;
++    const double scale = std::min(
++        1.0, maxDim / static_cast<double>(std::max(image.width(), image.height()))
++    );
++    QImage small = scale < 1.0
++        ? image.scaled(qRound(image.width() * scale), qRound(image.height() * scale),
++                       Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
++        : image;
++    QImage gray = small.convertToFormat(QImage::Format_Grayscale8);
++
++    std::vector<int> borderValues;
++    std::vector<int> centerValues;
++    const int w = gray.width();
++    const int h = gray.height();
++    const int stride = std::max(1, std::min(w, h) / 120);
++    for (int x = 0; x < w; x += stride) {
++        borderValues.push_back(qGray(gray.pixel(x, 0)));
++        borderValues.push_back(qGray(gray.pixel(x, h - 1)));
++    }
++    for (int y = 0; y < h; y += stride) {
++        borderValues.push_back(qGray(gray.pixel(0, y)));
++        borderValues.push_back(qGray(gray.pixel(w - 1, y)));
++    }
++    for (int y = h / 3; y < (2 * h) / 3; y += stride) {
++        for (int x = w / 3; x < (2 * w) / 3; x += stride) {
++            centerValues.push_back(qGray(gray.pixel(x, y)));
++        }
++    }
++    if (borderValues.empty() || centerValues.empty()) {
++        return QPolygonF();
++    }
++
++    std::sort(borderValues.begin(), borderValues.end());
++    std::sort(centerValues.begin(), centerValues.end());
++    const int bg = borderValues[borderValues.size() / 2];
++    const int paper = centerValues[centerValues.size() / 2];
++    if (paper - bg < 30) {
++        return QPolygonF();
++    }
++    const int threshold = qBound(20, bg + qRound((paper - bg) * 0.42), 235);
++
++    std::vector<QPointF> leftPts, rightPts, topPts, bottomPts;
++    const int samples = 31;
++    for (int i = 2; i < samples - 2; ++i) {
++        const int y = qRound((i / static_cast<double>(samples - 1)) * (h - 1));
++        int left = 0, right = 0;
++        if (archiveFindBrightRun(gray, y, true, false, threshold, &left)) {
++            leftPts.emplace_back(left, y);
++        }
++        if (archiveFindBrightRun(gray, y, true, true, threshold, &right)) {
++            rightPts.emplace_back(right, y);
++        }
++
++        const int x = qRound((i / static_cast<double>(samples - 1)) * (w - 1));
++        int top = 0, bottom = 0;
++        if (archiveFindBrightRun(gray, x, false, false, threshold, &top)) {
++            topPts.emplace_back(x, top);
++        }
++        if (archiveFindBrightRun(gray, x, false, true, threshold, &bottom)) {
++            bottomPts.emplace_back(x, bottom);
++        }
++    }
++
++    const ArchiveLinearFit left = archiveFitLine(leftPts, true);
++    const ArchiveLinearFit right = archiveFitLine(rightPts, true);
++    const ArchiveLinearFit top = archiveFitLine(topPts, false);
++    const ArchiveLinearFit bottom = archiveFitLine(bottomPts, false);
++    if (!left.valid || !right.valid || !top.valid || !bottom.valid) {
++        return QPolygonF();
++    }
++
++    QPolygonF poly;
++    poly << archiveIntersectLines(left, top)
++         << archiveIntersectLines(right, top)
++         << archiveIntersectLines(right, bottom)
++         << archiveIntersectLines(left, bottom);
++
++    const QRectF bounds = poly.boundingRect();
++    if (!bounds.isValid() || bounds.width() < w * 0.25 || bounds.height() < h * 0.25
++        || bounds.left() < -w * 0.1 || bounds.top() < -h * 0.1
++        || bounds.right() > w * 1.1 || bounds.bottom() > h * 1.1) {
++        return QPolygonF();
++    }
++
++    if (scale < 1.0) {
++        QTransform back;
++        back.scale(1.0 / scale, 1.0 / scale);
++        poly = back.map(poly);
++    }
++    return poly;
++}
++
++QPolygonF archiveCanonicalPage(QPolygonF const& poly)
++{
++    if (poly.size() != 4) {
++        return QPolygonF();
++    }
++
++    double minSum = std::numeric_limits<double>::infinity();
++    double maxSum = -std::numeric_limits<double>::infinity();
++    double minDiff = std::numeric_limits<double>::infinity();
++    double maxDiff = -std::numeric_limits<double>::infinity();
++    QPointF tl, tr, br, bl;
++    for (QPointF const& p : poly) {
++        const double sum = p.x() + p.y();
++        const double diff = p.x() - p.y();
++        if (sum < minSum) { minSum = sum; tl = p; }
++        if (sum > maxSum) { maxSum = sum; br = p; }
++        if (diff > maxDiff) { maxDiff = diff; tr = p; }
++        if (diff < minDiff) { minDiff = diff; bl = p; }
++    }
++
++    QPolygonF out;
++    out << tl << tr << br << bl;
++    if (!out.boundingRect().isValid() || out.boundingRect().width() < 16.0
++        || out.boundingRect().height() < 16.0) {
++        return QPolygonF();
++    }
++    return out;
++}
++
++bool archiveYAtX(QPointF const& a, QPointF const& b, double x, double* y)
++{
++    const double dx = b.x() - a.x();
++    if (std::abs(dx) < 1e-9) {
++        return false;
++    }
++    *y = a.y() + (x - a.x()) * (b.y() - a.y()) / dx;
++    return std::isfinite(*y);
++}
++
++bool archiveXAtY(QPointF const& a, QPointF const& b, double y, double* x)
++{
++    const double dy = b.y() - a.y();
++    if (std::abs(dy) < 1e-9) {
++        return false;
++    }
++    *x = a.x() + (y - a.y()) * (b.x() - a.x()) / dy;
++    return std::isfinite(*x);
++}
++
++QRectF archiveClampPaddingToPhysicalPage(QRectF const& baseContent,
++                                         QRectF const& expandedContent,
++                                         QPolygonF const& mappedPage,
++                                         double insetX, double insetY)
++{
++    const QPolygonF page = archiveCanonicalPage(mappedPage);
++    if (page.size() != 4) {
++        return baseContent;
++    }
++
++    const QPointF tl = page[0];
++    const QPointF tr = page[1];
++    const QPointF br = page[2];
++    const QPointF bl = page[3];
++    QRectF out = expandedContent;
++
++    for (int pass = 0; pass < 2; ++pass) {
++        double topL = 0.0, topR = 0.0, bottomL = 0.0, bottomR = 0.0;
++        if (!archiveYAtX(tl, tr, out.left(), &topL)
++            || !archiveYAtX(tl, tr, out.right(), &topR)
++            || !archiveYAtX(bl, br, out.left(), &bottomL)
++            || !archiveYAtX(bl, br, out.right(), &bottomR)) {
++            return baseContent;
++        }
++        const double topLimit = std::max(topL, topR) + insetY;
++        const double bottomLimit = std::min(bottomL, bottomR) - insetY;
++        out.setTop(std::min(baseContent.top(), std::max(out.top(), topLimit)));
++        out.setBottom(std::max(baseContent.bottom(), std::min(out.bottom(), bottomLimit)));
++
++        double leftT = 0.0, leftB = 0.0, rightT = 0.0, rightB = 0.0;
++        if (!archiveXAtY(tl, bl, out.top(), &leftT)
++            || !archiveXAtY(tl, bl, out.bottom(), &leftB)
++            || !archiveXAtY(tr, br, out.top(), &rightT)
++            || !archiveXAtY(tr, br, out.bottom(), &rightB)) {
++            return baseContent;
++        }
++        const double leftLimit = std::max(leftT, leftB) + insetX;
++        const double rightLimit = std::min(rightT, rightB) - insetX;
++        out.setLeft(std::min(baseContent.left(), std::max(out.left(), leftLimit)));
++        out.setRight(std::max(baseContent.right(), std::min(out.right(), rightLimit)));
++    }
++
++    if (!out.isValid() || out.isEmpty()) {
++        return baseContent;
++    }
++    return out;
++}
++} // anonymous namespace
++
+ class Task::UiUpdater : public FilterResult
+ {
+ public:
+@@ -154,18 +459,50 @@ Task::process(TaskStatus const& status, FilterData const& data)
              // box.  MANUAL rectangles never enter this branch and therefore
              // remain untouched.  Keep the enlargement in physical units so
              // the same setting behaves consistently at different source DPI.
@@ -873,19 +1191,44 @@ index 822085d..f4c09a0 100644
 -                    const double pad_x = padding_mm * content_rect.width() / content_mm.width();
 -                    const double pad_y = padding_mm * content_rect.height() / content_mm.height();
 -                    content_rect.adjust(-pad_x, -pad_y, pad_x, pad_y);
+-
+-                    // Never create pixels beyond the physical page box.
 +                    const double px_per_mm_x = content_rect.width() / content_mm.width();
 +                    const double px_per_mm_y = content_rect.height() / content_mm.height();
-+                    content_rect.adjust(
++                    const QRectF base_content_rect(content_rect);
++                    QRectF expanded_content_rect(content_rect);
++                    expanded_content_rect.adjust(
 +                        -pad_left_mm * px_per_mm_x,
 +                        -pad_top_mm * px_per_mm_y,
 +                        pad_right_mm * px_per_mm_x,
 +                        pad_bottom_mm * px_per_mm_y
 +                    );
- 
-                     // Never create pixels beyond the physical page box.
++
++                    // LimbusTailor: detect the real sheet against the dark
++                    // scanner bed and clamp only the EXTRA safety margin.
++                    const QPolygonF physical_page_orig = archiveDetectPhysicalPagePolygon(data.origImage());
++                    if (physical_page_orig.size() == 4) {
++                        const QPolygonF physical_page = data.xform().transform().map(physical_page_orig);
++                        const double inset_mm = 0.5;
++                        content_rect = archiveClampPaddingToPhysicalPage(
++                            base_content_rect,
++                            expanded_content_rect,
++                            physical_page,
++                            inset_mm * px_per_mm_x,
++                            inset_mm * px_per_mm_y
++                        );
++                    } else {
++                        // Fail safe: if the page edge is uncertain, keep the
++                        // original detector box rather than capture scanner bed.
++                        content_rect = base_content_rect;
++                    }
++
++                    // ScanTailor's own page geometry remains the final guard.
                      content_rect = content_rect.intersected(page_rect);
+                 }
+             }
 diff --git a/src/core/filters/select_content/ui/SelectContentOptionsWidget.ui b/src/core/filters/select_content/ui/SelectContentOptionsWidget.ui
-index 46128ff..ee8476d 100644
+index 46128ffb..ee8476d4 100644
 --- a/src/core/filters/select_content/ui/SelectContentOptionsWidget.ui
 +++ b/src/core/filters/select_content/ui/SelectContentOptionsWidget.ui
 @@ -233,32 +233,102 @@
@@ -1010,7 +1353,7 @@ index 46128ff..ee8476d 100644
        </item>
       </layout>
 diff --git a/src/core/settings/ini_keys.h b/src/core/settings/ini_keys.h
-index a977d1f..13a1868 100644
+index a977d1fb..13a18689 100644
 --- a/src/core/settings/ini_keys.h
 +++ b/src/core/settings/ini_keys.h
 @@ -142,6 +142,18 @@ static const char* _key_content_sel_content_color = "content_selection/content_c
