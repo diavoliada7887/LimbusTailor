@@ -10,3 +10,5 @@ Apply these patches in numeric order to ScanTailor Universal 0.2.13.
 6. `0006-hard-page-boundary-and-output-ui.patch`
 
 Patch 0006 contains the current archive-production behavior and is amended in place rather than split into later experimental patch numbers.
+
+Current 0006 behavior also detects the physical sheet against a dark scanner bed and clamps only the added content-safety margins to the slanted sheet boundary. The original AUTO content rectangle is never reduced by this protection layer.
