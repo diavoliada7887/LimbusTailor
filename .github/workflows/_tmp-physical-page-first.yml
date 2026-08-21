@@ -1,0 +1,170 @@
+name: tmp physical page first
+
+on:
+  push:
+    branches:
+      - work/physical-page-first
+    paths:
+      - '.physical-page-first-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout LimbusTailor
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Regenerate patch 0006
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$PWD"
+          git clone https://github.com/trufanov-nok/scantailor-universal.git /tmp/stu
+          cd /tmp/stu
+          git checkout c1a7d797160c12aef32a19e7e08f2e099c8f3292
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for p in 0001-output-formats.patch 0002-content-padding-mm.patch 0003-sparse-page-protection.patch 0004-modern-windows-portable-build.patch 0005-modern-exiv2-windows.patch; do
+            git apply "$ROOT/patches/$p"
+          done
+          git add -A
+          git commit -m "baseline after patches 0001-0005"
+          BASE=$(git rev-parse HEAD)
+
+          git apply "$ROOT/patches/0006-hard-page-boundary-and-output-ui.patch"
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          ROOT = Path('/tmp/stu')
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'{label}: marker not found')
+              if text.count(old) != 1:
+                  raise SystemExit(f'{label}: marker count={text.count(old)}')
+              return text.replace(old, new, 1)
+
+          # 1) ContentBoxFinder: accept the real physical page polygon and use it
+          # as the mask before shadow / content analysis.
+          p = ROOT / 'src/core/filters/select_content/ContentBoxFinder.h'
+          text = p.read_text()
+          text = replace_once(
+              text,
+              'class QRectF;\n',
+              'class QRectF;\nclass QPolygonF;\n',
+              'ContentBoxFinder.h forward declaration'
+          )
+          text = replace_once(
+              text,
+              '        TaskStatus const& status, FilterData const& data, QRectF const& page_rect,\n        DebugImages* dbg = 0);',
+              '        TaskStatus const& status, FilterData const& data, QRectF const& page_rect,\n        QPolygonF const& physical_page, DebugImages* dbg = 0);',
+              'ContentBoxFinder.h signature'
+          )
+          p.write_text(text)
+
+          p = ROOT / 'src/core/filters/select_content/ContentBoxFinder.cpp'
+          text = p.read_text()
+          text = replace_once(
+              text,
+              'ContentBoxFinder::findContentBox(\n    TaskStatus const& status, FilterData const& data, QRectF const& page_rect, DebugImages* dbg)',
+              'ContentBoxFinder::findContentBox(\n    TaskStatus const& status, FilterData const& data, QRectF const& page_rect,\n    QPolygonF const& physical_page, DebugImages* dbg)',
+              'ContentBoxFinder.cpp signature'
+          )
+          old_mask = '''    QRectF page_rect150(page_rect.left()*xscale, page_rect.top()*yscale,\n                        page_rect.right()*xscale, page_rect.bottom()*yscale);\n    PolygonRasterizer::fillExcept(\n        bw150, BLACK, page_rect150, Qt::WindingFill\n    );\n'''
+          new_mask = '''    QRectF page_rect150(page_rect.left()*xscale, page_rect.top()*yscale,\n                        page_rect.right()*xscale, page_rect.bottom()*yscale);\n    QPolygonF page_mask150;\n    if (physical_page.size() == 4) {\n        for (QPointF const& pt : physical_page) {\n            page_mask150 << QPointF(pt.x() * xscale, pt.y() * yscale);\n        }\n    } else {\n        page_mask150 << page_rect150.topLeft()\n                     << page_rect150.topRight()\n                     << page_rect150.bottomRight()\n                     << page_rect150.bottomLeft();\n    }\n    PolygonRasterizer::fillExcept(\n        bw150, BLACK, page_mask150, Qt::WindingFill\n    );\n'''
+          text = replace_once(text, old_mask, new_mask, 'ContentBoxFinder physical mask')
+          p.write_text(text)
+
+          # 2) Select Content task: detect physical sheet BEFORE ContentBoxFinder,
+          # reuse it for the finder, optional top-right protection and final padding clamp.
+          p = ROOT / 'src/core/filters/select_content/Task.cpp'
+          text = p.read_text()
+          marker = '        QRectF page_rect(data.xform().resultingRect());\n        QRectF content_rect(page_rect);\n\n'
+          inserted = '''        QRectF page_rect(data.xform().resultingRect());\n        QRectF content_rect(page_rect);\n\n        // LimbusTailor: establish physical sheet geometry first.  The page may\n        // be skewed, so keep the four-edge polygon rather than collapsing it\n        // to a bounding rectangle.  An empty polygon means fail-safe fallback.\n        QPolygonF physical_page;\n        const QPolygonF physical_page_orig = archiveDetectPhysicalPagePolygon(data.origImage());\n        if (physical_page_orig.size() == 4) {\n            physical_page = data.xform().transform().map(physical_page_orig);\n        }\n\n'''
+          text = replace_once(text, marker, inserted, 'Task physical page pre-detection')
+
+          start_marker = '        if (regeneration_enforced || (new_params.isContentDetectionEnabled() && new_params.mode() == MODE_AUTO)) {'
+          end_marker = '        } else if (new_params.isContentDetectionEnabled() && new_params.mode() == MODE_MANUAL &&'
+          start = text.find(start_marker)
+          if start < 0:
+              raise SystemExit('Task AUTO block start not found')
+          end = text.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('Task AUTO block end not found')
+
+          new_auto = '''        if (regeneration_enforced || (new_params.isContentDetectionEnabled() && new_params.mode() == MODE_AUTO)) {\n            // Physical page detection happens before content analysis.  Passing\n            // the real polygon keeps dark scanner-bed triangles out of the\n            // ContentBoxFinder mask even when the sheet is skewed.\n            content_rect = ContentBoxFinder::findContentBox(\n                status, data, page_rect, physical_page, m_ptrDbg.get()\n            );\n\n            QSettings archiveSettings;\n            const double legacy_padding = archiveSettings.value(\n                _key_content_sel_content_padding_mm, _key_content_sel_content_padding_mm_def\n            ).toDouble();\n            const double pad_top_mm = archiveSettings.value(_key_content_sel_padding_top_mm, legacy_padding).toDouble();\n            const double pad_bottom_mm = archiveSettings.value(_key_content_sel_padding_bottom_mm, legacy_padding).toDouble();\n            const double pad_left_mm = archiveSettings.value(_key_content_sel_padding_left_mm, legacy_padding).toDouble();\n            const double pad_right_mm = archiveSettings.value(_key_content_sel_padding_right_mm, legacy_padding).toDouble();\n            const bool protect_top_right = archiveSettings.value(\n                _key_content_sel_protect_top_right_mark, _key_content_sel_protect_top_right_mark_def\n            ).toBool();\n\n            if (content_rect.isValid() && !content_rect.isEmpty()) {\n                PhysSizeCalc const size_calc(data.xform());\n                QSizeF const content_mm(size_calc.sizeMM(content_rect));\n                if (content_mm.width() > 0.0 && content_mm.height() > 0.0) {\n                    const double px_per_mm_x = content_rect.width() / content_mm.width();\n                    const double px_per_mm_y = content_rect.height() / content_mm.height();\n                    const double inset_mm = 0.5;\n                    const double inset_x = inset_mm * px_per_mm_x;\n                    const double inset_y = inset_mm * px_per_mm_y;\n\n                    // Optional archive-number protection.  We do not try to\n                    // recognize faint pencil.  When enabled, request the real\n                    // upper-right sheet corner as significant content, then\n                    // constrain that request to a rectangle fully inside the\n                    // detected skewed sheet.\n                    if (protect_top_right && physical_page.size() == 4) {\n                        const QPolygonF canonical_page = archiveCanonicalPage(physical_page);\n                        if (canonical_page.size() == 4) {\n                            const QRectF page_bounds = canonical_page.boundingRect();\n                            const QRectF base_content_rect(content_rect);\n                            QRectF corner_requested(content_rect);\n                            corner_requested.setTop(std::min(corner_requested.top(), page_bounds.top()));\n                            corner_requested.setRight(std::max(corner_requested.right(), page_bounds.right()));\n                            content_rect = archiveClampPaddingToPhysicalPage(\n                                base_content_rect, corner_requested, physical_page, inset_x, inset_y\n                            );\n                        }\n                    }\n\n                    // Per-side safety margins are still added after content\n                    // detection, but may never cross the physical sheet edge.\n                    if (pad_top_mm > 0.0 || pad_bottom_mm > 0.0\n                        || pad_left_mm > 0.0 || pad_right_mm > 0.0) {\n                        const QRectF base_content_rect(content_rect);\n                        QRectF expanded_content_rect(content_rect);\n                        expanded_content_rect.adjust(\n                            -pad_left_mm * px_per_mm_x,\n                            -pad_top_mm * px_per_mm_y,\n                            pad_right_mm * px_per_mm_x,\n                            pad_bottom_mm * px_per_mm_y\n                        );\n\n                        if (physical_page.size() == 4) {\n                            content_rect = archiveClampPaddingToPhysicalPage(\n                                base_content_rect, expanded_content_rect, physical_page, inset_x, inset_y\n                            );\n                        } else {\n                            // Fail safe: an uncertain physical edge is not a\n                            // license to capture scanner bed.  Skip extra margin.\n                            content_rect = base_content_rect;\n                        }\n                    }\n\n                    // ScanTailor's own page geometry remains the final guard.\n                    content_rect = content_rect.intersected(page_rect);\n                }\n            }\n'''
+          text = text[:start] + new_auto + text[end:]
+          p.write_text(text)
+
+          # 3) Settings for the optional top-right mark protection.
+          p = ROOT / 'src/core/settings/ini_keys.h'
+          text = p.read_text()
+          key_marker = 'static const double _key_content_sel_padding_right_mm_def = 0.0;\n'
+          key_insert = key_marker + '''static const char* _key_content_sel_protect_top_right_mark = "content_selection/protect_top_right_mark";\nstatic const bool _key_content_sel_protect_top_right_mark_def = false;\n'''
+          text = replace_once(text, key_marker, key_insert, 'ini key top-right protection')
+          p.write_text(text)
+
+          # 4) Select Content UI: one explicit opt-in checkbox.
+          p = ROOT / 'src/core/filters/select_content/OptionsWidget.cpp'
+          text = p.read_text()
+          connect_marker = '    connect(contentWolfThreshold, SIGNAL(valueChanged(int)), this, SLOT(contentDetectionSettingsChanged()));\n'
+          text = replace_once(
+              text,
+              connect_marker,
+              connect_marker + '    connect(protectTopRightMark, SIGNAL(toggled(bool)), this, SLOT(topRightProtectionChanged()));\n',
+              'OptionsWidget connect top-right protection'
+          )
+          init_marker = '''    contentWolfThreshold->setValue(paddingSettings.value(\n        _key_content_sel_wolf_lower_bound, _key_content_sel_wolf_lower_bound_def\n    ).toInt());\n'''
+          init_insert = init_marker + '''    protectTopRightMark->setChecked(paddingSettings.value(\n        _key_content_sel_protect_top_right_mark, _key_content_sel_protect_top_right_mark_def\n    ).toBool());\n'''
+          text = replace_once(text, init_marker, init_insert, 'OptionsWidget init top-right protection')
+
+          slot_marker = '''void\nOptionsWidget::contentDetectionSettingsChanged()\n{\n    QSettings settings;\n    QString cleanup = QStringLiteral("NORMAL");\n    if (contentCleanup->currentIndex() == 0) {\n        cleanup = QStringLiteral("CAUTIOUS");\n    } else if (contentCleanup->currentIndex() == 2) {\n        cleanup = QStringLiteral("AGGRESSIVE");\n    }\n    settings.setValue(_key_content_sel_cleanup_level, cleanup);\n    settings.setValue(_key_content_sel_wolf_lower_bound, contentWolfThreshold->value());\n\n    if (m_uiData.contentDetection() && m_uiData.mode() == MODE_AUTO) {\n        commitCurrentParams();\n        emit reloadRequested();\n    }\n}\n\n'''
+          new_slot = slot_marker + '''void\nOptionsWidget::topRightProtectionChanged()\n{\n    QSettings().setValue(\n        _key_content_sel_protect_top_right_mark, protectTopRightMark->isChecked()\n    );\n\n    if (m_uiData.contentDetection() && m_uiData.mode() == MODE_AUTO) {\n        commitCurrentParams();\n        emit reloadRequested();\n    }\n}\n\n'''
+          text = replace_once(text, slot_marker, new_slot, 'OptionsWidget top-right slot')
+          p.write_text(text)
+
+          p = ROOT / 'src/core/filters/select_content/OptionsWidget.h'
+          text = p.read_text()
+          header_marker = '    void contentDetectionSettingsChanged();\n'
+          text = replace_once(
+              text,
+              header_marker,
+              header_marker + '    void topRightProtectionChanged();\n',
+              'OptionsWidget.h top-right slot'
+          )
+          p.write_text(text)
+
+          p = ROOT / 'src/core/filters/select_content/ui/SelectContentOptionsWidget.ui'
+          text = p.read_text()
+          scope_marker = '''   <item>\n    <widget class="QGroupBox" name="scopeBox">\n'''
+          protection_ui = '''   <item>\n    <widget class="QGroupBox" name="physicalPageBox">\n     <property name="title">\n      <string>Physical page</string>\n     </property>\n     <layout class="QVBoxLayout" name="physicalPageLayout">\n      <item>\n       <widget class="QCheckBox" name="protectTopRightMark">\n        <property name="text">\n         <string>Protect top-right mark</string>\n        </property>\n        <property name="toolTip">\n         <string>Treat the physical sheet's upper-right corner as significant content. Useful for faint handwritten archive numbers.</string>\n        </property>\n       </widget>\n      </item>\n     </layout>\n    </widget>\n   </item>\n'''
+          text = replace_once(text, scope_marker, protection_ui + scope_marker, 'SelectContent UI physical page group')
+          p.write_text(text)
+          PY
+
+          git diff --binary "$BASE" > "$ROOT/patches/0006-hard-page-boundary-and-output-ui.patch"
+
+          # Verify the regenerated patch applies cleanly to exactly the same base.
+          git reset --hard "$BASE"
+          git clean -fdx
+          git apply --check "$ROOT/patches/0006-hard-page-boundary-and-output-ui.patch"
+          git apply "$ROOT/patches/0006-hard-page-boundary-and-output-ui.patch"
+
+          cd "$ROOT"
+          git add patches/0006-hard-page-boundary-and-output-ui.patch
+          if git diff --cached --quiet; then
+            echo "Patch unchanged"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat: detect physical page before content"
+          git push origin HEAD:work/physical-page-first
