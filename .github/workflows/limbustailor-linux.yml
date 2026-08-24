@@ -8,10 +8,12 @@ on:
       - 'work/**'
     paths:
       - 'patches/**'
+      - 'branding/**'
       - '.github/workflows/limbustailor-linux.yml'
   pull_request:
     paths:
       - 'patches/**'
+      - 'branding/**'
       - '.github/workflows/limbustailor-linux.yml'
 
 jobs:
@@ -42,10 +44,12 @@ jobs:
                    ../patches/0002-content-padding-mm.patch \
                    ../patches/0003-sparse-page-protection.patch \
                    ../patches/0004-modern-windows-portable-build.patch \
-                   ../patches/0006-hard-page-boundary-and-output-ui.patch; do
+                   ../patches/0006-hard-page-boundary-and-output-ui.patch \
+                   ../patches/0007-arkhivum-ui-localization.patch; do
             git apply --check "$p"
             git apply "$p"
           done
+          cp ../branding/arkhivum.qss src/stylesheets/arkhivum.qss
 
       - name: Configure
         working-directory: scantailor-universal

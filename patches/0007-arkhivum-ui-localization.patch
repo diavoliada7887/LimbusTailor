@@ -1,0 +1,158 @@
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -74,2 +74,17 @@ int main(int argc, char** argv)
+     QSettings settings;
++    if (!settings.value(QStringLiteral("main_window/arkhivum_theme_initialized"), false).toBool()) {
++#ifdef _WIN32
++        const QString arkhivumQss = QDir(app.applicationDirPath()).filePath(
++            QStringLiteral("stylesheets/arkhivum.qss")
++        );
++#else
++        const QString arkhivumQss = QDir(QString::fromUtf8(STYLESHEETS_DIR_ABS)).filePath(
++            QStringLiteral("arkhivum.qss")
++        );
++#endif
++        settings.setValue(_key_app_style, QStringLiteral("fusion"));
++        settings.setValue(_key_app_stylsheet_file, arkhivumQss);
++        settings.setValue(_key_app_empty_palette, false);
++        settings.setValue(QStringLiteral("main_window/arkhivum_theme_initialized"), true);
++    }
+     GlobalStaticSettings::applyAppStyle(settings);
+diff --git a/src/core/filters/page_layout/OptionsWidget.cpp b/src/core/filters/page_layout/OptionsWidget.cpp
+--- a/src/core/filters/page_layout/OptionsWidget.cpp
++++ b/src/core/filters/page_layout/OptionsWidget.cpp
+@@ -71,3 +71,3 @@ OptionsWidget::OptionsWidget(
+     QSettings archiveSettings;
+-    marginFillColor->addItem(QStringLiteral("White"), QStringLiteral("WHITE"));
+-    marginFillColor->addItem(QStringLiteral("Black"), QStringLiteral("BLACK"));
++    marginFillColor->addItem(tr("White"), QStringLiteral("WHITE"));
++    marginFillColor->addItem(tr("Black"), QStringLiteral("BLACK"));
+diff --git a/src/translations/scantailor-universal_ru.ts b/src/translations/scantailor-universal_ru.ts
+--- a/src/translations/scantailor-universal_ru.ts
++++ b/src/translations/scantailor-universal_ru.ts
+@@ -4435,2 +4435,124 @@
+ </context>
++<context>
++    <name>OutputOptionsWidget</name>
++    <message>
++        <source>Archive output</source>
++        <translation>Архивный результат</translation>
++    </message>
++    <message>
++        <source>Format:</source>
++        <translation>Формат:</translation>
++    </message>
++    <message>
++        <source>JPEG quality:</source>
++        <translation>Качество JPEG:</translation>
++    </message>
++</context>
++<context>
++    <name>PageLayoutOptionsWidget</name>
++    <message>
++        <source>Fill color:</source>
++        <translation>Цвет полей:</translation>
++    </message>
++</context>
++<context>
++    <name>page_layout::OptionsWidget</name>
++    <message>
++        <source>White</source>
++        <translation>Белый</translation>
++    </message>
++    <message>
++        <source>Black</source>
++        <translation>Чёрный</translation>
++    </message>
++</context>
++<context>
++    <name>SelectContentOptionsWidget</name>
++    <message>
++        <source>Content Box - auto detection</source>
++        <translation>Автоопределение области содержимого</translation>
++    </message>
++    <message>
++        <source>Noise filter:</source>
++        <translation>Фильтр шума:</translation>
++    </message>
++    <message>
++        <source>Cautious</source>
++        <translation>Щадящий</translation>
++    </message>
++    <message>
++        <source>Normal</source>
++        <translation>Обычный</translation>
++    </message>
++    <message>
++        <source>Aggressive</source>
++        <translation>Агрессивный</translation>
++    </message>
++    <message>
++        <source>Binarization threshold:</source>
++        <translation>Порог бинаризации:</translation>
++    </message>
++    <message>
++        <source>ScanTailor default is 50. Try 30-40 to make isolated dark specks less influential.</source>
++        <translation>Значение ScanTailor по умолчанию — 50. Попробуйте 30–40, чтобы одиночные тёмные точки меньше влияли на результат.</translation>
++    </message>
++    <message>
++        <source>Content safety margin</source>
++        <translation>Защитные поля содержимого</translation>
++    </message>
++    <message>
++        <source>Top:</source>
++        <translation>Сверху:</translation>
++    </message>
++    <message>
++        <source>Bottom:</source>
++        <translation>Снизу:</translation>
++    </message>
++    <message>
++        <source>Left:</source>
++        <translation>Слева:</translation>
++    </message>
++    <message>
++        <source>Right:</source>
++        <translation>Справа:</translation>
++    </message>
++    <message>
++        <source> mm</source>
++        <translation> мм</translation>
++    </message>
++    <message>
++        <source>Physical page</source>
++        <translation>Физический лист</translation>
++    </message>
++    <message>
++        <source>Protect top-right mark</source>
++        <translation>Сохранять метку в правом верхнем углу</translation>
++    </message>
++    <message>
++        <source>Treat the physical sheet&apos;s upper-right corner as significant content. Useful for faint handwritten archive numbers.</source>
++        <translation>Считать правый верхний угол физического листа значимой областью. Полезно для бледных рукописных архивных номеров.</translation>
++    </message>
++</context>
++<context>
++    <name>output::Filter</name>
++    <message>
++        <source>Scanner background on top</source>
++        <translation>Фон сканера — наверх</translation>
++    </message>
++    <message>
++        <source>Pages with the longest continuous dark edge are shown first</source>
++        <translation>Страницы с самым длинным непрерывным тёмным краем показываются первыми</translation>
++    </message>
++</context>
++<context>
++    <name>QObject</name>
++    <message>
++        <source>not processed</source>
++        <translation>не обработано</translation>
++    </message>
++    <message>
++        <source>scanner background: %1%</source>
++        <translation>фон сканера: %1%</translation>
++    </message>
++</context>
+ </TS>

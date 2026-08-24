@@ -13,11 +13,14 @@ Current features include:
 - sparse-page / hard-page-boundary protection;
 - white / black Page Layout margin fill;
 - content detection tuning;
+- scanner-background QC ordering;
+- Arkhivum light UI theme using the archive brand palette;
+- Russian localization for LimbusTailor-specific controls while English remains the source-language interface;
 - portable Windows build.
 
 ## Patch order
 
-Apply `patches/0001` through `patches/0006` in numeric order to ScanTailor Universal 0.2.13.
+Apply `patches/0001` through `patches/0007` in numeric order to ScanTailor Universal 0.2.13.
 
 ## License and upstream attribution
 
