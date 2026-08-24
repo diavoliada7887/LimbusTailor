@@ -37,6 +37,80 @@ index 133836cf..a0bd30de 100644
              );
  
              if (!stored_output_params->outputImageParams().matches(new_output_image_params)) {
+diff --git a/src/core/filters/output/Filter.cpp b/src/core/filters/output/Filter.cpp
+index 2ae80c22..d61a06a7 100644
+--- a/src/core/filters/output/Filter.cpp
++++ b/src/core/filters/output/Filter.cpp
+@@ -39,12 +39,57 @@
+ #include "ImageViewTab.h"
+ #include "OrderByModeProvider.h"
+ #include "OrderBySourceColor.h"
++#include "PageOrderProvider.h"
+ #include "version.h"
+ #include "FillColorProperty.h"
+ 
+ namespace output
+ {
+ 
++namespace
++{
++class OrderByScannerBackground : public PageOrderProvider
++{
++public:
++    explicit OrderByScannerBackground(IntrusivePtr<Settings> const& settings)
++        : m_settings(settings) {}
++
++    bool precedes(PageId const& lhs, bool lhs_incomplete,
++                  PageId const& rhs, bool rhs_incomplete) const override
++    {
++        if (lhs_incomplete != rhs_incomplete) {
++            return !lhs_incomplete;
++        }
++        const double ls = score(lhs);
++        const double rs = score(rhs);
++        if (ls != rs) {
++            return ls > rs;
++        }
++        return lhs < rhs;
++    }
++
++    QString hint(PageId const& page) const override
++    {
++        std::unique_ptr<OutputParams> params(m_settings->getOutputParams(page));
++        if (!params) {
++            return QObject::tr("not processed");
++        }
++        return QObject::tr("scanner background: %1%").arg(
++            params->archiveScannerBackgroundScore(), 0, 'f', 2
++        );
++    }
++
++private:
++    double score(PageId const& page) const
++    {
++        std::unique_ptr<OutputParams> params(m_settings->getOutputParams(page));
++        return params ? params->archiveScannerBackgroundScore() : -1.0;
++    }
++
++    IntrusivePtr<Settings> m_settings;
++};
++}
++
+ Filter::Filter(
+     IntrusivePtr<ProjectPages> const& pages,
+     PageSelectionAccessor const& page_selection_accessor)
+@@ -65,6 +110,11 @@ Filter::Filter(
+     m_pageOrderOptions.push_back(PageOrderOption(tr("Order by mode"), order_by_mode));
+     m_pageOrderOptions.push_back(PageOrderOption(tr("Grayscale sources on top"), order_by_source_color,
+                                  tr("Groups the pages by presence\nof a non grey color in the source files")));
++    m_pageOrderOptions.push_back(PageOrderOption(
++        tr("Scanner background on top"),
++        ProviderPtr(new OrderByScannerBackground(m_ptrSettings)),
++        tr("Pages with the longest continuous dark edge are shown first")
++    ));
+ }
+ 
+ Filter::~Filter()
 diff --git a/src/core/filters/output/OptionsWidget.cpp b/src/core/filters/output/OptionsWidget.cpp
 index 46f19e00..1e8d0b38 100644
 --- a/src/core/filters/output/OptionsWidget.cpp
@@ -206,7 +280,7 @@ index 25f3e231..570386a9 100644
          uint8_t const dominant_gray = reserveBlackAndWhite<uint8_t>(
                                            calcDominantBackgroundGrayLevel(input.grayImage())
 diff --git a/src/core/filters/output/OutputImageParams.cpp b/src/core/filters/output/OutputImageParams.cpp
-index 54578aba..743d1248 100644
+index 54578aba..dab7f8e7 100644
 --- a/src/core/filters/output/OutputImageParams.cpp
 +++ b/src/core/filters/output/OutputImageParams.cpp
 @@ -36,7 +36,8 @@ OutputImageParams::OutputImageParams(QSize const& out_image_size, QRect const& c
@@ -219,35 +293,38 @@ index 54578aba..743d1248 100644
      :   m_size(out_image_size),
          m_contentRect(content_rect),
          m_dpi(dpi),
-@@ -45,7 +46,8 @@ OutputImageParams::OutputImageParams(QSize const& out_image_size, QRect const& c
+@@ -45,7 +46,9 @@ OutputImageParams::OutputImageParams(QSize const& out_image_size, QRect const& c
          m_depthPerception(depth_perception),
          m_dewarpingMode(dewarping_mode),
          m_despeckleLevel(despeckle_level),
 -        m_TiffCompression(TiffCompression)
 +        m_TiffCompression(TiffCompression),
-+        m_archiveMarginFill(archiveMarginFill)
++        m_archiveMarginFill(archiveMarginFill),
++        m_archiveGeometryVersion(QStringLiteral("binding-polygon-qc-v1"))
  {
      // For historical reasons, we disregard post-cropping and post-scaling here.
      xform.setPostCropArea(QPolygonF()); // Resets post-scale as well.
-@@ -61,7 +63,8 @@ OutputImageParams::OutputImageParams(QDomElement const& el)
+@@ -61,7 +64,9 @@ OutputImageParams::OutputImageParams(QDomElement const& el)
          m_depthPerception(el.attribute("depthPerception")),
          m_dewarpingMode(el.attribute("dewarpingMode")),
          m_despeckleLevel(despeckleLevelFromString(el.attribute("despeckleLevel"))),
 -        m_TiffCompression(el.attribute("tiff-compression"))
 +        m_TiffCompression(el.attribute("tiff-compression")),
-+        m_archiveMarginFill(el.attribute("archive-margin-fill", "WHITE"))
++        m_archiveMarginFill(el.attribute("archive-margin-fill", "WHITE")),
++        m_archiveGeometryVersion(el.attribute("archive-geometry-version"))
  {
  }
  
-@@ -81,6 +84,7 @@ OutputImageParams::toXml(QDomDocument& doc, QString const& name) const
+@@ -81,6 +86,8 @@ OutputImageParams::toXml(QDomDocument& doc, QString const& name) const
      el.setAttribute("dewarpingMode", m_dewarpingMode.toString());
      el.setAttribute("despeckleLevel", despeckleLevelToString(m_despeckleLevel));
      el.setAttribute("tiff-compression", m_TiffCompression);
 +    el.setAttribute("archive-margin-fill", m_archiveMarginFill);
++    el.setAttribute("archive-geometry-version", m_archiveGeometryVersion);
  
      return el;
  }
-@@ -108,6 +112,10 @@ OutputImageParams::matches(OutputImageParams const& other) const
+@@ -108,6 +115,14 @@ OutputImageParams::matches(OutputImageParams const& other) const
          return false;
      }
  
@@ -255,11 +332,15 @@ index 54578aba..743d1248 100644
 +        return false;
 +    }
 +
++    if (m_archiveGeometryVersion != other.m_archiveGeometryVersion) {
++        return false;
++    }
++
      if (!colorParamsMatch(m_colorParams, m_despeckleLevel,
                            other.m_colorParams, other.m_despeckleLevel)) {
          return false;
 diff --git a/src/core/filters/output/OutputImageParams.h b/src/core/filters/output/OutputImageParams.h
-index 2ba02490..9f02cb75 100644
+index 2ba02490..4a43972f 100644
 --- a/src/core/filters/output/OutputImageParams.h
 +++ b/src/core/filters/output/OutputImageParams.h
 @@ -50,7 +50,8 @@ public:
@@ -272,18 +353,103 @@ index 2ba02490..9f02cb75 100644
  
      explicit OutputImageParams(QDomElement const& el);
  
-@@ -155,6 +156,9 @@ private:
+@@ -155,6 +156,12 @@ private:
  
      /** Tiff compression method of the output image. */
      QString m_TiffCompression;
 +
 +    /** ScanTailor Archive Page Layout fill color. */
 +    QString m_archiveMarginFill;
++
++    /** Invalidate cached output when archive geometry rules change. */
++    QString m_archiveGeometryVersion;
+ };
+ 
+ } // namespace output
+diff --git a/src/core/filters/output/OutputParams.cpp b/src/core/filters/output/OutputParams.cpp
+index 6ead140f..780e3b82 100644
+--- a/src/core/filters/output/OutputParams.cpp
++++ b/src/core/filters/output/OutputParams.cpp
+@@ -21,6 +21,7 @@
+ #include "FillZonePropFactory.h"
+ #include <QDomDocument>
+ #include <QDomElement>
++#include <QString>
+ 
+ namespace output
+ {
+@@ -31,13 +32,15 @@ OutputParams::OutputParams(
+     OutputFileParams const& automask_file_params,
+     OutputFileParams const& speckles_file_params,
+     ZoneSet const& picture_zones,
+-    ZoneSet const& fill_zones)
++    ZoneSet const& fill_zones,
++    double archive_scanner_background_score)
+     :   m_outputImageParams(output_image_params),
+         m_outputFileParams(output_file_params),
+         m_automaskFileParams(automask_file_params),
+         m_specklesFileParams(speckles_file_params),
+         m_pictureZones(picture_zones),
+-        m_fillZones(fill_zones)
++        m_fillZones(fill_zones),
++        m_archiveScannerBackgroundScore(archive_scanner_background_score)
+ {
+ }
+ 
+@@ -47,7 +50,8 @@ OutputParams::OutputParams(QDomElement const& el)
+         m_automaskFileParams(el.namedItem("automask").toElement()),
+         m_specklesFileParams(el.namedItem("speckles").toElement()),
+         m_pictureZones(el.namedItem("zones").toElement(), PictureZonePropFactory()),
+-        m_fillZones(el.namedItem("fill-zones").toElement(), FillZonePropFactory())
++        m_fillZones(el.namedItem("fill-zones").toElement(), FillZonePropFactory()),
++        m_archiveScannerBackgroundScore(el.attribute("archive-scanner-background-score", "0").toDouble())
+ {
+ }
+ 
+@@ -61,6 +65,7 @@ OutputParams::toXml(QDomDocument& doc, QString const& name) const
+     el.appendChild(m_specklesFileParams.toXml(doc, "speckles"));
+     el.appendChild(m_pictureZones.toXml(doc, "zones"));
+     el.appendChild(m_fillZones.toXml(doc, "fill-zones"));
++    el.setAttribute("archive-scanner-background-score", QString::number(m_archiveScannerBackgroundScore, 'f', 6));
+     return el;
+ }
+ 
+diff --git a/src/core/filters/output/OutputParams.h b/src/core/filters/output/OutputParams.h
+index 5ad3425d..966016f1 100644
+--- a/src/core/filters/output/OutputParams.h
++++ b/src/core/filters/output/OutputParams.h
+@@ -37,7 +37,8 @@ public:
+                  OutputFileParams const& output_file_params,
+                  OutputFileParams const& automask_file_params,
+                  OutputFileParams const& speckles_file_params,
+-                 ZoneSet const& picture_zones, ZoneSet const& fill_zones);
++                 ZoneSet const& picture_zones, ZoneSet const& fill_zones,
++                 double archive_scanner_background_score = 0.0);
+ 
+     explicit OutputParams(QDomElement const& el);
+ 
+@@ -72,6 +73,11 @@ public:
+     {
+         return m_fillZones;
+     }
++
++    double archiveScannerBackgroundScore() const
++    {
++        return m_archiveScannerBackgroundScore;
++    }
+ private:
+     OutputImageParams m_outputImageParams;
+     OutputFileParams m_outputFileParams;
+@@ -79,6 +85,7 @@ private:
+     OutputFileParams m_specklesFileParams;
+     ZoneSet m_pictureZones;
+     ZoneSet m_fillZones;
++    double m_archiveScannerBackgroundScore;
  };
  
  } // namespace output
 diff --git a/src/core/filters/output/Task.cpp b/src/core/filters/output/Task.cpp
-index a74c29ed..f5935d94 100644
+index a74c29ed..bdbea982 100644
 --- a/src/core/filters/output/Task.cpp
 +++ b/src/core/filters/output/Task.cpp
 @@ -71,6 +71,14 @@
@@ -301,7 +467,7 @@ index a74c29ed..f5935d94 100644
  #include <QDir>
  #include <QFileInfo>
  #include <QTabWidget>
-@@ -90,6 +98,257 @@ namespace output
+@@ -90,6 +98,334 @@ namespace output
  
  namespace
  {
@@ -511,32 +677,109 @@ index a74c29ed..f5935d94 100644
 +    return fillName == QLatin1String("BLACK") ? Qt::black : Qt::white;
 +}
 +
-+void protectScannerBackground(QImage& image, Qt::GlobalColor fillColor)
++QPolygonF archiveAllowedPagePolygon(FilterData const& data, ImageTransformation const& xform)
 +{
-+    QSettings settings;
-+    const double paddingMm = settings.value(
-+        _key_content_sel_content_padding_mm, _key_content_sel_content_padding_mm_def
-+    ).toDouble();
-+    if (paddingMm <= 0.0 || image.isNull()) {
++    QPainterPath allowed;
++    bool haveAllowed = false;
++
++    const QPolygonF physicalOrig = detectPhysicalPagePolygon(data.origImage());
++    if (physicalOrig.size() == 4) {
++        const QPolygonF physicalOut = xform.transform().map(physicalOrig);
++        QPainterPath physicalPath;
++        physicalPath.addPolygon(physicalOut);
++        physicalPath.closeSubpath();
++        allowed = physicalPath;
++        haveAllowed = true;
++    }
++
++    // Page Split already knows the binding / cutter geometry.  The resulting
++    // pre-crop area is the selected page polygon after that cutter, so it is
++    // a hard production boundary even when Select Content was edited manually.
++    const QPolygonF splitPage = xform.resultingPreCropArea();
++    if (splitPage.size() >= 3) {
++        QPainterPath splitPath;
++        splitPath.addPolygon(splitPage);
++        splitPath.closeSubpath();
++        allowed = haveAllowed ? allowed.intersected(splitPath) : splitPath;
++        haveAllowed = true;
++    }
++
++    return haveAllowed ? allowed.toFillPolygon() : QPolygonF();
++}
++
++void applyArchivePageGeometry(QImage& image, QPolygonF const& allowedPage,
++                              Qt::GlobalColor fillColor)
++{
++    if (image.isNull() || allowedPage.size() < 3) {
 +        return;
 +    }
 +
-+    const QPolygonF page = detectPhysicalPagePolygon(image);
-+    if (page.size() != 4) {
-+        return;
-+    }
-+
-+    QPainterPath outside;
-+    outside.setFillRule(Qt::OddEvenFill);
-+    outside.addRect(QRectF(image.rect()));
++    QPainterPath full;
++    full.addRect(QRectF(image.rect()));
 +    QPainterPath inside;
-+    inside.addPolygon(page);
++    inside.addPolygon(allowedPage);
 +    inside.closeSubpath();
-+    outside.addPath(inside);
 +
 +    QPainter painter(&image);
 +    painter.setRenderHint(QPainter::Antialiasing, false);
-+    painter.fillPath(outside, fillColor);
++    painter.fillPath(full.subtracted(inside), fillColor);
++}
++
++double archiveScannerBackgroundScore(QImage const& image, QRect const& contentRect,
++                                     QPolygonF const& allowedPage)
++{
++    if (image.isNull()) {
++        return 0.0;
++    }
++    const QRect r = contentRect.intersected(image.rect());
++    if (r.width() < 8 || r.height() < 8) {
++        return 0.0;
++    }
++
++    Q_UNUSED(allowedPage);
++
++    // Score the raw generated image BEFORE hard page cleanup.  Pixels outside
++    // the allowed polygon are deliberately included here: a captured black
++    // scanner-bed wedge is exactly the production defect this QC sort must find.
++    auto isDark = [&](int x, int y) {
++        return qGray(image.pixel(x, y)) < 55;
++    };
++
++    auto horizontalScore = [&](int y) {
++        int longest = 0;
++        int run = 0;
++        for (int x = r.left(); x <= r.right(); ++x) {
++            if (isDark(x, y)) {
++                longest = std::max(longest, ++run);
++            } else {
++                run = 0;
++            }
++        }
++        return 100.0 * longest / std::max(1, r.width());
++    };
++
++    auto verticalScore = [&](int x) {
++        int longest = 0;
++        int run = 0;
++        for (int y = r.top(); y <= r.bottom(); ++y) {
++            if (isDark(x, y)) {
++                longest = std::max(longest, ++run);
++            } else {
++                run = 0;
++            }
++        }
++        return 100.0 * longest / std::max(1, r.height());
++    };
++
++    double score = 0.0;
++    const int depth = 3;
++    for (int d = 0; d < depth; ++d) {
++        score = std::max(score, horizontalScore(std::min(r.bottom(), r.top() + d)));
++        score = std::max(score, horizontalScore(std::max(r.top(), r.bottom() - d)));
++        score = std::max(score, verticalScore(std::min(r.right(), r.left() + d)));
++        score = std::max(score, verticalScore(std::max(r.left(), r.right() - d)));
++    }
++    return score;
 +}
 +
 +void fillArchiveLayoutMargins(QImage& image, QRect const& contentRect, Qt::GlobalColor fillColor)
@@ -559,7 +802,7 @@ index a74c29ed..f5935d94 100644
  bool writeFinalOutputImage(QString const& filePath, QImage const& image, QString* tiffCompressionUsed)
  {
      const QString format = GlobalStaticSettings::m_output_image_format;
-@@ -268,6 +527,10 @@ Task::process(
+@@ -268,6 +604,10 @@ Task::process(
          new_xform, content_rect_phys
      );
  
@@ -570,7 +813,7 @@ index a74c29ed..f5935d94 100644
      OutputImageParams new_output_image_params(
          generator.outputImageSize(), generator.outputContentRect(),
          new_xform, params.outputDpi(), params.colorParams(),
-@@ -275,7 +538,8 @@ Task::process(
+@@ -275,7 +615,8 @@ Task::process(
          params.depthPerception(), params.despeckleLevel(),
          params.colorParams().colorMode() == ColorParams::BLACK_AND_WHITE ?
                      GlobalStaticSettings::m_tiff_compr_method_bw :
@@ -580,18 +823,43 @@ index a74c29ed..f5935d94 100644
  
  //begin of modified by monday2000
  //Quadro_Zoner
-@@ -489,6 +753,11 @@ Task::process(
+@@ -410,6 +751,7 @@ Task::process(
+     QImage out_img;
+     BinaryImage automask_img;
+     BinaryImage speckles_img;
++    double archiveScannerBackground = 0.0;
+ 
+     if (!need_reprocess) {
+         QFile out_file(out_file_path);
+@@ -489,6 +831,18 @@ Task::process(
  
          QString TiffCompressionUsed;
  
-+        // ScanTailor Archive: literal Page Layout paint.
++        // ScanTailor Archive: hard geometry.  The allowed source is the
++        // intersection of the detected physical sheet and Page Split's page
++        // polygon (binding / cutter included).  This applies to AUTO and MANUAL
++        // content rectangles alike and preserves slanted paper edges.
 +        const Qt::GlobalColor archiveFill = archiveMarginFillColor();
-+        protectScannerBackground(out_img, archiveFill);
++        const QPolygonF archiveAllowedPage = archiveAllowedPagePolygon(data, new_xform);
++        archiveScannerBackground = archiveScannerBackgroundScore(
++            out_img, generator.outputContentRect(), archiveAllowedPage
++        );
++        applyArchivePageGeometry(out_img, archiveAllowedPage, archiveFill);
 +        fillArchiveLayoutMargins(out_img, generator.outputContentRect(), archiveFill);
 +
          if (!writeFinalOutputImage(out_file_path, out_img, &TiffCompressionUsed)) {
              invalidate_params = true;
          } else {
+@@ -541,7 +895,8 @@ Task::process(
+                 : OutputFileParams(),
+                 write_speckles_file ? OutputFileParams(QFileInfo(speckles_file_path))
+                 : OutputFileParams(),
+-                new_picture_zones, new_fill_zones
++                new_picture_zones, new_fill_zones,
++                archiveScannerBackground
+             );
+ 
+             m_ptrSettings->setOutputParams(m_pageId, out_params);
 diff --git a/src/core/filters/output/ui/OutputOptionsWidget.ui b/src/core/filters/output/ui/OutputOptionsWidget.ui
 index 2031c2f3..95463391 100644
 --- a/src/core/filters/output/ui/OutputOptionsWidget.ui
