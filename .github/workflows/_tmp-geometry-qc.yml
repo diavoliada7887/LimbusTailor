@@ -1,0 +1,53 @@
+name: tmp geometry qc regenerate
+
+on:
+  push:
+    branches:
+      - work/binding-polygon-qc
+    paths:
+      - '.geometry-qc-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout LimbusTailor
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Regenerate patch 0006
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$PWD"
+          git clone https://github.com/trufanov-nok/scantailor-universal.git /tmp/stu
+          cd /tmp/stu
+          git checkout c1a7d797160c12aef32a19e7e08f2e099c8f3292
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for p in 0001-output-formats.patch 0002-content-padding-mm.patch 0003-sparse-page-protection.patch 0004-modern-windows-portable-build.patch 0005-modern-exiv2-windows.patch; do
+            git apply "$ROOT/patches/$p"
+          done
+          git add -A
+          git commit -m "baseline after patches 0001-0005"
+          BASE=$(git rev-parse HEAD)
+
+          git apply "$ROOT/patches/0006-hard-page-boundary-and-output-ui.patch"
+          cd "$ROOT"
+          python3 .github/scripts/geometry_qc.py
+          python3 .github/scripts/geometry_qc_post.py
+
+          cd /tmp/stu
+          git diff --binary "$BASE" > "$ROOT/patches/0006-hard-page-boundary-and-output-ui.patch"
+
+          cd "$ROOT"
+          git add patches/0006-hard-page-boundary-and-output-ui.patch
+          git diff --cached --check
+          git commit -m "feat: hard page geometry and scanner background QC"
+          git push origin HEAD:work/binding-polygon-qc
