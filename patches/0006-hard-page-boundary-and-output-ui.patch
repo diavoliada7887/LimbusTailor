@@ -449,7 +449,7 @@ index 5ad3425d..966016f1 100644
  
  } // namespace output
 diff --git a/src/core/filters/output/Task.cpp b/src/core/filters/output/Task.cpp
-index a74c29ed..c1fff4e5 100644
+index a74c29ed..bdbea982 100644
 --- a/src/core/filters/output/Task.cpp
 +++ b/src/core/filters/output/Task.cpp
 @@ -71,6 +71,14 @@
@@ -467,7 +467,7 @@ index a74c29ed..c1fff4e5 100644
  #include <QDir>
  #include <QFileInfo>
  #include <QTabWidget>
-@@ -90,6 +98,338 @@ namespace output
+@@ -90,6 +98,334 @@ namespace output
  
  namespace
  {
@@ -736,16 +736,12 @@ index a74c29ed..c1fff4e5 100644
 +        return 0.0;
 +    }
 +
-+    QPainterPath allowed;
-+    if (allowedPage.size() >= 3) {
-+        allowed.addPolygon(allowedPage);
-+        allowed.closeSubpath();
-+    }
++    Q_UNUSED(allowedPage);
 +
-+    auto isDarkAllowed = [&](int x, int y) {
-+        if (!allowed.isEmpty() && !allowed.contains(QPointF(x + 0.5, y + 0.5))) {
-+            return false;
-+        }
++    // Score the raw generated image BEFORE hard page cleanup.  Pixels outside
++    // the allowed polygon are deliberately included here: a captured black
++    // scanner-bed wedge is exactly the production defect this QC sort must find.
++    auto isDark = [&](int x, int y) {
 +        return qGray(image.pixel(x, y)) < 55;
 +    };
 +
@@ -753,7 +749,7 @@ index a74c29ed..c1fff4e5 100644
 +        int longest = 0;
 +        int run = 0;
 +        for (int x = r.left(); x <= r.right(); ++x) {
-+            if (isDarkAllowed(x, y)) {
++            if (isDark(x, y)) {
 +                longest = std::max(longest, ++run);
 +            } else {
 +                run = 0;
@@ -766,7 +762,7 @@ index a74c29ed..c1fff4e5 100644
 +        int longest = 0;
 +        int run = 0;
 +        for (int y = r.top(); y <= r.bottom(); ++y) {
-+            if (isDarkAllowed(x, y)) {
++            if (isDark(x, y)) {
 +                longest = std::max(longest, ++run);
 +            } else {
 +                run = 0;
@@ -806,7 +802,7 @@ index a74c29ed..c1fff4e5 100644
  bool writeFinalOutputImage(QString const& filePath, QImage const& image, QString* tiffCompressionUsed)
  {
      const QString format = GlobalStaticSettings::m_output_image_format;
-@@ -268,6 +608,10 @@ Task::process(
+@@ -268,6 +604,10 @@ Task::process(
          new_xform, content_rect_phys
      );
  
@@ -817,7 +813,7 @@ index a74c29ed..c1fff4e5 100644
      OutputImageParams new_output_image_params(
          generator.outputImageSize(), generator.outputContentRect(),
          new_xform, params.outputDpi(), params.colorParams(),
-@@ -275,7 +619,8 @@ Task::process(
+@@ -275,7 +615,8 @@ Task::process(
          params.depthPerception(), params.despeckleLevel(),
          params.colorParams().colorMode() == ColorParams::BLACK_AND_WHITE ?
                      GlobalStaticSettings::m_tiff_compr_method_bw :
@@ -827,16 +823,15 @@ index a74c29ed..c1fff4e5 100644
  
  //begin of modified by monday2000
  //Quadro_Zoner
-@@ -410,6 +755,8 @@ Task::process(
+@@ -410,6 +751,7 @@ Task::process(
      QImage out_img;
      BinaryImage automask_img;
      BinaryImage speckles_img;
 +    double archiveScannerBackground = 0.0;
-+    double archiveScannerBackground = 0.0;
  
      if (!need_reprocess) {
          QFile out_file(out_file_path);
-@@ -489,6 +836,18 @@ Task::process(
+@@ -489,6 +831,18 @@ Task::process(
  
          QString TiffCompressionUsed;
  
@@ -855,7 +850,7 @@ index a74c29ed..c1fff4e5 100644
          if (!writeFinalOutputImage(out_file_path, out_img, &TiffCompressionUsed)) {
              invalidate_params = true;
          } else {
-@@ -541,7 +900,8 @@ Task::process(
+@@ -541,7 +895,8 @@ Task::process(
                  : OutputFileParams(),
                  write_speckles_file ? OutputFileParams(QFileInfo(speckles_file_path))
                  : OutputFileParams(),
