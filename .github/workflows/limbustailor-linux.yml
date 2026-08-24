@@ -49,6 +49,7 @@ jobs:
             git apply --check "$p"
             git apply "$p"
           done
+          python3 ../branding/apply-ui-overrides.py
           cp ../branding/arkhivum.qss src/stylesheets/arkhivum.qss
 
       - name: Configure

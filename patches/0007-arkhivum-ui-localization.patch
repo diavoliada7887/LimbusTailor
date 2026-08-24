@@ -19,15 +19,6 @@ diff --git a/src/app/main.cpp b/src/app/main.cpp
 +        settings.setValue(QStringLiteral("main_window/arkhivum_theme_initialized"), true);
 +    }
      GlobalStaticSettings::applyAppStyle(settings);
-diff --git a/src/core/filters/page_layout/OptionsWidget.cpp b/src/core/filters/page_layout/OptionsWidget.cpp
---- a/src/core/filters/page_layout/OptionsWidget.cpp
-+++ b/src/core/filters/page_layout/OptionsWidget.cpp
-@@ -71,3 +71,3 @@ OptionsWidget::OptionsWidget(
-     QSettings archiveSettings;
--    marginFillColor->addItem(QStringLiteral("White"), QStringLiteral("WHITE"));
--    marginFillColor->addItem(QStringLiteral("Black"), QStringLiteral("BLACK"));
-+    marginFillColor->addItem(tr("White"), QStringLiteral("WHITE"));
-+    marginFillColor->addItem(tr("Black"), QStringLiteral("BLACK"));
 diff --git a/src/translations/scantailor-universal_ru.ts b/src/translations/scantailor-universal_ru.ts
 --- a/src/translations/scantailor-universal_ru.ts
 +++ b/src/translations/scantailor-universal_ru.ts

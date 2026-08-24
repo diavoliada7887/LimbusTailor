@@ -43,6 +43,7 @@ jobs:
             git apply --check "$p"
             git apply "$p"
           done
+          python ../branding/apply-ui-overrides.py
           cp ../branding/arkhivum.qss src/stylesheets/arkhivum.qss
 
       - name: Install Qt 5.15.2
