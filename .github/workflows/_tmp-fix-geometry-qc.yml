@@ -1,0 +1,64 @@
+name: tmp fix geometry qc
+
+on:
+  pull_request:
+    branches:
+      - work/physical-page-first
+    paths:
+      - '.github/workflows/_tmp-fix-geometry-qc.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/binding-polygon-qc
+          fetch-depth: 0
+      - name: Fix and regenerate 0006
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ROOT="$PWD"
+          git config user.name "CI"
+          git config user.email "ci@example.invalid"
+          git clone https://github.com/trufanov-nok/scantailor-universal.git /tmp/stu
+          cd /tmp/stu
+          git checkout c1a7d797160c12aef32a19e7e08f2e099c8f3292
+          git config user.name "CI"
+          git config user.email "ci@example.invalid"
+          for p in 0001-output-formats.patch 0002-content-padding-mm.patch 0003-sparse-page-protection.patch 0004-modern-windows-portable-build.patch 0005-modern-exiv2-windows.patch; do
+            git apply "$ROOT/patches/$p"
+          done
+          git add -A
+          git commit -m baseline
+          BASE=$(git rev-parse HEAD)
+          git apply "$ROOT/patches/0006-hard-page-boundary-and-output-ui.patch"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/stu/src/core/filters/output/Task.cpp')
+          t = p.read_text()
+          dup = '    double archiveScannerBackground = 0.0;\n    double archiveScannerBackground = 0.0;'
+          if dup not in t:
+              raise SystemExit('duplicate score declaration marker not found')
+          t = t.replace(dup, '    double archiveScannerBackground = 0.0;', 1)
+
+          old = '''    QPainterPath allowed;\n    if (allowedPage.size() >= 3) {\n        allowed.addPolygon(allowedPage);\n        allowed.closeSubpath();\n    }\n\n    auto isDarkAllowed = [&](int x, int y) {\n        if (!allowed.isEmpty() && !allowed.contains(QPointF(x + 0.5, y + 0.5))) {\n            return false;\n        }\n        return qGray(image.pixel(x, y)) < 55;\n    };'''
+          new = '''    Q_UNUSED(allowedPage);\n\n    // Score the raw generated image BEFORE hard page cleanup.  Pixels outside\n    // the allowed polygon are deliberately included here: a captured black\n    // scanner-bed wedge is exactly the production defect this QC sort must find.\n    auto isDark = [&](int x, int y) {\n        return qGray(image.pixel(x, y)) < 55;\n    };'''
+          if old not in t:
+              raise SystemExit('QC raw-edge marker not found')
+          t = t.replace(old, new, 1)
+          t = t.replace('if (isDarkAllowed(x, y)) {', 'if (isDark(x, y)) {')
+          t = t.replace('if (isDarkAllowed(x, y)) {', 'if (isDark(x, y)) {')
+          p.write_text(t)
+          PY
+          git diff --check || true
+          git diff --binary "$BASE" > "$ROOT/patches/0006-hard-page-boundary-and-output-ui.patch"
+          cd "$ROOT"
+          git add patches/0006-hard-page-boundary-and-output-ui.patch
+          git commit -m "fix: score raw scanner background edges"
+          git push origin HEAD:work/binding-polygon-qc
