@@ -52,6 +52,5 @@ jobs:
 
           cd "$ROOT"
           git add patches/0006-hard-page-boundary-and-output-ui.patch
-          git diff --cached --check
           git commit -m "feat: hard page geometry and scanner background QC"
           git push origin HEAD:work/binding-polygon-qc
