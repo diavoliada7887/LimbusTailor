@@ -1,10 +1,13 @@
 name: tmp geometry qc regenerate
 
 on:
-  push:
+  pull_request:
     branches:
-      - work/binding-polygon-qc
+      - work/physical-page-first
     paths:
+      - '.github/scripts/geometry_qc.py'
+      - '.github/scripts/geometry_qc_post.py'
+      - '.github/workflows/_tmp-geometry-qc.yml'
       - '.geometry-qc-trigger'
   workflow_dispatch:
 
@@ -15,9 +18,10 @@ jobs:
   regenerate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout LimbusTailor
+      - name: Checkout LimbusTailor head branch
         uses: actions/checkout@v4
         with:
+          ref: work/binding-polygon-qc
           fetch-depth: 0
 
       - name: Regenerate patch 0006
