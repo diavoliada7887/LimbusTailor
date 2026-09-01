@@ -16,11 +16,13 @@ Current features include:
 - scanner-background QC ordering;
 - Arkhivum light UI theme using the archive brand palette;
 - Russian localization for LimbusTailor-specific controls while English remains the source-language interface;
+- optional end-to-end route setup that exposes later-stage settings without prerequisite processing;
+- one-command end-to-end processing through Split Pages, Deskew, Select Content, Page Layout and Output;
 - portable Windows build.
 
 ## Patch order
 
-Apply `patches/0001` through `patches/0007` in numeric order to ScanTailor Universal 0.2.13.
+Apply `patches/0001` through `patches/0007` in numeric order to ScanTailor Universal 0.2.13, then run `branding/apply-ui-overrides.py` and `pipeline/apply-end-to-end.py`.
 
 ## License and upstream attribution
 
