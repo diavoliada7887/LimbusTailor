@@ -1,6 +1,6 @@
 from pathlib import Path
 
-ROOT = Path("scantailor-universal")
+ROOT = Path(".")
 CPP = ROOT / "src/app/MainWindow.cpp"
 HDR = ROOT / "src/app/MainWindow.h"
 RU = ROOT / "src/translations/scantailor-universal_ru.ts"
