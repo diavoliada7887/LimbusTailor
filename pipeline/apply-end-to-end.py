@@ -133,7 +133,7 @@ cpp = replace_once(
     "\n"
     "        PageInfo const page(m_ptrThumbSequence->selectionLeader());\n"
     "        if (!page.isNull()) {\n"
-    "            m_ptrStages->filterAt(m_curFilter)->preUpdateUI(this, page.id());\n"
+    "            m_ptrStages->filterAt(m_curFilter)->preUpdateUI(this, page.id());\n            if (m_curFilter == m_ptrStages->pageLayoutFilterIdx()) {\n                m_ptrStages->pageLayoutFilter()->optionsWidget()->postUpdateUI();\n            }\n            if (m_curFilter == m_ptrStages->pageLayoutFilterIdx()) {\n                m_ptrStages->pageLayoutFilter()->optionsWidget()->postUpdateUI();\n            }\n            if (m_curFilter == m_ptrStages->pageLayoutFilterIdx()) {\n                m_ptrStages->pageLayoutFilter()->optionsWidget()->postUpdateUI();\n            }\n"
     "        }\n"
     "        StatusBarProvider::changeFilterIdx(m_curFilter);\n"
     "        if (QStatusBar* sb = statusBar()) {\n"
