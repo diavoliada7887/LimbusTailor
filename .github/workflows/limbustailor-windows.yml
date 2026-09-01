@@ -106,24 +106,35 @@ jobs:
         run: |
           cmake --build scantailor-build --config Release --target scantailor-universal compile_translations --parallel 2
 
-      - name: Assemble portable folder
+      - name: Restore known-good portable runtime from 2026-08-24
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rm -rf LimbusTailor-portable old-runtime.zip
+          gh api /repos/diavoliada7887/LimbusTailor/actions/artifacts/9518115591/zip > old-runtime.zip
+          mkdir -p LimbusTailor-portable
+          unzip -q old-runtime.zip -d LimbusTailor-portable
+
+      - name: Assemble portable folder on known-good runtime
         shell: pwsh
         run: |
           $portable = Join-Path $env:GITHUB_WORKSPACE 'LimbusTailor-portable'
-          New-Item -ItemType Directory -Force -Path $portable | Out-Null
           $exe = Get-ChildItem scantailor-build -Recurse -Filter scantailor-universal.exe | Select-Object -First 1
           if (-not $exe) { throw 'scantailor-universal.exe was not produced' }
-          Copy-Item $exe.FullName $portable
-          & 'C:\Qt\5.15.2\msvc2019_64\bin\windeployqt.exe' --release --compiler-runtime --no-system-d3d-compiler $portable\scantailor-universal.exe
-          Copy-Item 'C:\vcpkg\installed\x64-windows\bin\*.dll' $portable -Force
-          New-Item -ItemType Directory -Force -Path (Join-Path $portable 'translations') | Out-Null
-          Get-ChildItem scantailor-build -Recurse -Filter *.qm | Copy-Item -Destination (Join-Path $portable 'translations') -Force
-          Copy-Item 'scantailor-universal\src\stylesheets' (Join-Path $portable 'stylesheets') -Recurse -Force
-          Set-Content -Path (Join-Path $portable 'BUILD.txt') -Value "LimbusTailor based on ScanTailor Universal 0.2.13`nFeatures: JPG/PNG/TIFF + per-side content safety margins + sparse-page protection + native white/black layout margins + content detection tuning + Arkhivum UI + RU localization + end-to-end route`nBuilt from $env:GITHUB_SHA"
+          Copy-Item $exe.FullName (Join-Path $portable 'scantailor-universal.exe') -Force
+
+          $ru = Get-ChildItem scantailor-build -Recurse -Filter scantailor-universal_ru.qm | Select-Object -First 1
+          if ($ru) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $portable 'translations') | Out-Null
+            Copy-Item $ru.FullName (Join-Path $portable 'translations\scantailor-universal_ru.qm') -Force
+          }
+
+          Set-Content -Path (Join-Path $portable 'BUILD.txt') -Value "LimbusTailor based on ScanTailor Universal 0.2.13`nFeatures: Arkhivum archive patches + RU localization + end-to-end route`nCompatibility package: runtime DLL set restored from known-good 2026-08-24 Windows artifact`nBuilt from $env:GITHUB_SHA"
 
       - name: Upload portable Windows build
         uses: actions/upload-artifact@v4
         with:
-          name: LimbusTailor-Windows-x64
+          name: LimbusTailor-EndToEnd-Compat-Windows-x64
           path: LimbusTailor-portable
           if-no-files-found: error
