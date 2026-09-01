@@ -9,6 +9,7 @@ on:
     paths:
       - 'patches/**'
       - 'branding/**'
+      - 'pipeline/**'
       - '.github/workflows/limbustailor-windows.yml'
   pull_request:
     paths:
@@ -44,6 +45,7 @@ jobs:
             git apply "$p"
           done
           python ../branding/apply-ui-overrides.py
+          python ../pipeline/apply-end-to-end.py
           cp ../branding/arkhivum.qss src/stylesheets/arkhivum.qss
 
       - name: Install Qt 5.15.2
@@ -117,7 +119,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path (Join-Path $portable 'translations') | Out-Null
           Get-ChildItem scantailor-build -Recurse -Filter *.qm | Copy-Item -Destination (Join-Path $portable 'translations') -Force
           Copy-Item 'scantailor-universal\src\stylesheets' (Join-Path $portable 'stylesheets') -Recurse -Force
-          Set-Content -Path (Join-Path $portable 'BUILD.txt') -Value "LimbusTailor based on ScanTailor Universal 0.2.13`nFeatures: JPG/PNG/TIFF + per-side content safety margins + sparse-page protection + native white/black layout margins + content detection tuning + Arkhivum UI + RU localization`nBuilt from $env:GITHUB_SHA"
+          Set-Content -Path (Join-Path $portable 'BUILD.txt') -Value "LimbusTailor based on ScanTailor Universal 0.2.13`nFeatures: JPG/PNG/TIFF + per-side content safety margins + sparse-page protection + native white/black layout margins + content detection tuning + Arkhivum UI + RU localization + end-to-end route`nBuilt from $env:GITHUB_SHA"
 
       - name: Upload portable Windows build
         uses: actions/upload-artifact@v4
