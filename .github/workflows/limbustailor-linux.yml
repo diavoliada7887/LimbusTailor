@@ -9,6 +9,7 @@ on:
     paths:
       - 'patches/**'
       - 'branding/**'
+      - 'pipeline/**'
       - '.github/workflows/limbustailor-linux.yml'
   pull_request:
     paths:
@@ -50,6 +51,7 @@ jobs:
             git apply "$p"
           done
           python3 ../branding/apply-ui-overrides.py
+          python3 ../pipeline/apply-end-to-end.py
           cp ../branding/arkhivum.qss src/stylesheets/arkhivum.qss
 
       - name: Configure
