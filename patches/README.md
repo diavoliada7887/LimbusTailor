@@ -21,3 +21,5 @@ At Output, the permitted source area is the intersection of the detected physica
 Output also stores a scanner-background edge score based on the longest continuous dark run along the content edges. The `Scanner background on top` page-order option uses that score to bring the most suspicious processed pages to the top for quality control.
 
 Patch 0007 is deliberately separate from production geometry. It adds the Arkhivum light visual theme, makes it the one-time default without locking users out of the existing style settings, and extends the existing Russian translation with LimbusTailor-specific controls. English source strings remain unchanged.
+
+The optional `pipeline/apply-end-to-end.py` source patcher adds a parameter-only route setup mode and a separate end-to-end batch command. In route setup mode, selecting Output bypasses ScanTailor's `checkReadyForOutput()` gate, so output parameters can be edited before Select Content / Page Layout have been processed. The run command then uses the existing composite task chain to process every queued page through all stages to Output without changing the normal per-stage batch workflow.
