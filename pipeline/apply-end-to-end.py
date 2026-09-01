@@ -63,6 +63,16 @@ cpp = replace_once(
 
 cpp = replace_once(
     cpp,
+    "#include \"filters/page_layout/Filter.h\"\n"
+    "#include \"filters/page_layout/Task.h\"\n",
+    "#include \"filters/page_layout/Filter.h\"\n"
+    "#include \"filters/page_layout/OptionsWidget.h\"\n"
+    "#include \"filters/page_layout/Task.h\"\n",
+    "MainWindow.cpp Page Layout OptionsWidget include",
+)
+
+cpp = replace_once(
+    cpp,
     "        m_ptrInteractiveQueue(new ProcessingTaskQueue(ProcessingTaskQueue::RANDOM_ORDER)),\n"
     "        m_curFilter(0),\n"
     "        m_ignoreSelectionChanges(0),\n"
