@@ -4,6 +4,8 @@ ROOT = Path(".")
 CPP = ROOT / "src/app/MainWindow.cpp"
 HDR = ROOT / "src/app/MainWindow.h"
 RU = ROOT / "src/translations/scantailor-universal_ru.ts"
+PL_FILTER_H = ROOT / "src/core/filters/page_layout/Filter.h"
+PL_FILTER_CPP = ROOT / "src/core/filters/page_layout/Filter.cpp"
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
@@ -51,6 +53,53 @@ h = replace_once(
 
 HDR.write_text(h, encoding="utf-8")
 
+# ---- Page Layout route-setup helper ---------------------------------------
+pl_h = PL_FILTER_H.read_text(encoding="utf-8")
+pl_h = replace_once(
+    pl_h,
+    "    virtual void preUpdateUI(FilterUiInterface* ui, PageId const& page_id);\n\n"
+    "    virtual QDomElement saveSettings(\n",
+    "    virtual void preUpdateUI(FilterUiInterface* ui, PageId const& page_id);\n\n"
+    "    // LimbusTailor: expose the normal post-update editable state without\n"
+    "    // forcing image processing while configuring the end-to-end route.\n"
+    "    void enableRouteSetupOptions();\n\n"
+    "    virtual QDomElement saveSettings(\n",
+    "page_layout::Filter route setup declaration",
+)
+PL_FILTER_H.write_text(pl_h, encoding="utf-8")
+
+pl_cpp = PL_FILTER_CPP.read_text(encoding="utf-8")
+pl_cpp = replace_once(
+    pl_cpp,
+    "void\n"
+    "Filter::preUpdateUI(FilterUiInterface* ui, PageId const& page_id)\n"
+    "{\n"
+    "    MarginsWithAuto const margins_mm(m_ptrSettings->getHardMarginsMM(page_id));\n"
+    "    Alignment const alignment(m_ptrSettings->getPageAlignment(page_id));\n"
+    "    m_ptrOptionsWidget->preUpdateUI(page_id, margins_mm, alignment);\n"
+    "    ui->setOptionsWidget(m_ptrOptionsWidget.get(), ui->KEEP_OWNERSHIP);\n"
+    "}\n\n"
+    "QDomElement\n",
+    "void\n"
+    "Filter::preUpdateUI(FilterUiInterface* ui, PageId const& page_id)\n"
+    "{\n"
+    "    MarginsWithAuto const margins_mm(m_ptrSettings->getHardMarginsMM(page_id));\n"
+    "    Alignment const alignment(m_ptrSettings->getPageAlignment(page_id));\n"
+    "    m_ptrOptionsWidget->preUpdateUI(page_id, margins_mm, alignment);\n"
+    "    ui->setOptionsWidget(m_ptrOptionsWidget.get(), ui->KEEP_OWNERSHIP);\n"
+    "}\n\n"
+    "void\n"
+    "Filter::enableRouteSetupOptions()\n"
+    "{\n"
+    "    if (m_ptrOptionsWidget) {\n"
+    "        m_ptrOptionsWidget->postUpdateUI();\n"
+    "    }\n"
+    "}\n\n"
+    "QDomElement\n",
+    "page_layout::Filter route setup implementation",
+)
+PL_FILTER_CPP.write_text(pl_cpp, encoding="utf-8")
+
 # ---- MainWindow.cpp -------------------------------------------------------
 cpp = CPP.read_text(encoding="utf-8")
 
@@ -59,16 +108,6 @@ cpp = replace_once(
     "#include <QApplication>\n",
     "#include <QApplication>\n#include <QAction>\n",
     "MainWindow.cpp QAction include",
-)
-
-cpp = replace_once(
-    cpp,
-    "#include \"filters/page_layout/Filter.h\"\n"
-    "#include \"filters/page_layout/Task.h\"\n",
-    "#include \"filters/page_layout/Filter.h\"\n"
-    "#include \"filters/page_layout/OptionsWidget.h\"\n"
-    "#include \"filters/page_layout/Task.h\"\n",
-    "MainWindow.cpp Page Layout OptionsWidget include",
 )
 
 cpp = replace_once(
@@ -143,7 +182,7 @@ cpp = replace_once(
     "\n"
     "        PageInfo const page(m_ptrThumbSequence->selectionLeader());\n"
     "        if (!page.isNull()) {\n"
-    "            m_ptrStages->filterAt(m_curFilter)->preUpdateUI(this, page.id());\n            if (m_curFilter == m_ptrStages->pageLayoutFilterIdx()) {\n                m_ptrStages->pageLayoutFilter()->optionsWidget()->postUpdateUI();\n            }\n"
+    "            m_ptrStages->filterAt(m_curFilter)->preUpdateUI(this, page.id());\n            if (m_curFilter == m_ptrStages->pageLayoutFilterIdx()) {\n                m_ptrStages->pageLayoutFilter()->enableRouteSetupOptions();\n            }\n"
     "        }\n"
     "        StatusBarProvider::changeFilterIdx(m_curFilter);\n"
     "        if (QStatusBar* sb = statusBar()) {\n"
@@ -178,7 +217,7 @@ cpp = replace_once(
     "        if (!page.isNull()) {\n"
     "            m_ptrStages->filterAt(m_curFilter)->preUpdateUI(this, page.id());\n"
     "            if (m_curFilter == m_ptrStages->pageLayoutFilterIdx()) {\n"
-    "                m_ptrStages->pageLayoutFilter()->optionsWidget()->postUpdateUI();\n"
+    "                m_ptrStages->pageLayoutFilter()->enableRouteSetupOptions();\n"
     "            }\n"
     "        }\n"
     "        return;\n"
@@ -211,7 +250,7 @@ cpp = replace_once(
     "        if (!page.isNull()) {\n"
     "            m_ptrStages->filterAt(m_curFilter)->preUpdateUI(this, page.id());\n"
     "            if (m_curFilter == m_ptrStages->pageLayoutFilterIdx()) {\n"
-    "                m_ptrStages->pageLayoutFilter()->optionsWidget()->postUpdateUI();\n"
+    "                m_ptrStages->pageLayoutFilter()->enableRouteSetupOptions();\n"
     "            }\n"
     "        }\n"
     "        if (QStatusBar* sb = statusBar()) {\n"
