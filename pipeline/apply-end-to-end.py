@@ -272,8 +272,51 @@ cpp = CPP.read_text(encoding="utf-8")
 cpp = replace_once(
     cpp,
     "#include <QApplication>\n",
-    "#include <QApplication>\n#include <QAction>\n",
-    "MainWindow.cpp QAction include",
+    "#include <QApplication>\n#include <QAction>\n#include <QLineEdit>\n#include <QLabel>\n#include <QTimer>\n",
+    "MainWindow.cpp route/search includes",
+)
+
+cpp = replace_once(
+    cpp,
+    "    setupUi(this);\n"
+    "    setupStatusBar();\n",
+    "    setupUi(this);\n"
+    "    setupStatusBar();\n"
+    "\n"
+    "    // LimbusTailor: quick jump by page number for large projects.\n"
+    "    // Leading zeroes are accepted: 045 means page 45.\n"
+    "    QLabel* const quick_page_label = new QLabel(tr(\"Page:\"), this);\n"
+    "    QLineEdit* const quick_page_edit = new QLineEdit(this);\n"
+    "    quick_page_edit->setFixedWidth(92);\n"
+    "    quick_page_edit->setPlaceholderText(tr(\"045\"));\n"
+    "    quick_page_edit->setToolTip(tr(\"Quick jump to page number\"));\n"
+    "    quick_page_edit->setClearButtonEnabled(true);\n"
+    "    statusBar()->addPermanentWidget(quick_page_label);\n"
+    "    statusBar()->addPermanentWidget(quick_page_edit);\n"
+    "\n"
+    "    QTimer* const quick_page_timer = new QTimer(quick_page_edit);\n"
+    "    quick_page_timer->setSingleShot(true);\n"
+    "    connect(quick_page_edit, &QLineEdit::textEdited, this,\n"
+    "            [quick_page_timer](QString const&) { quick_page_timer->start(220); });\n"
+    "    connect(quick_page_edit, &QLineEdit::returnPressed, this,\n"
+    "            [quick_page_timer]() { quick_page_timer->start(0); });\n"
+    "    connect(quick_page_timer, &QTimer::timeout, this, [this, quick_page_edit]() {\n"
+    "        if (!isProjectLoaded()) {\n"
+    "            return;\n"
+    "        }\n"
+    "        bool ok = false;\n"
+    "        int const page_no = quick_page_edit->text().trimmed().toInt(&ok);\n"
+    "        if (!ok || page_no < 1) {\n"
+    "            return;\n"
+    "        }\n"
+    "        PageSequence const pages(m_ptrPages->toPageSequence(getCurrentView()));\n"
+    "        if (page_no <= static_cast<int>(pages.numPages())) {\n"
+    "            goToPage(pages.pageAt(page_no - 1).id());\n"
+    "        } else {\n"
+    "            QApplication::beep();\n"
+    "        }\n"
+    "    });\n",
+    "MainWindow quick page jump",
 )
 
 cpp = replace_once(
@@ -649,6 +692,14 @@ replacement = """    <message>
         <location filename="../app/MainWindow.cpp" line="589"/>
         <source>Stop batch processing</source>
         <translation>Остановить пакетную обработку</translation>
+    </message>
+    <message>
+        <source>Page:</source>
+        <translation>Страница:</translation>
+    </message>
+    <message>
+        <source>Quick jump to page number</source>
+        <translation>Быстрый переход к номеру страницы</translation>
     </message>
     <message>
         <source>End-to-end route setup</source>
