@@ -189,7 +189,7 @@ pl_filter_cpp = replace_once(
     "void\n"
     "Filter::setRouteSetupMode(bool const enabled)\n"
     "{\n"
-    "    if (m_ptrOptionsWidget) {\n"
+    "    if (m_ptrOptionsWidget.get() != 0) {\n"
     "        m_ptrOptionsWidget->setRouteSetupMode(enabled);\n"
     "    }\n"
     "}\n\n"
