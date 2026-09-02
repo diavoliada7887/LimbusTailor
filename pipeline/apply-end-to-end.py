@@ -4,6 +4,11 @@ ROOT = Path(".")
 CPP = ROOT / "src/app/MainWindow.cpp"
 HDR = ROOT / "src/app/MainWindow.h"
 RU = ROOT / "src/translations/scantailor-universal_ru.ts"
+PL_FILTER_H = ROOT / "src/core/filters/page_layout/Filter.h"
+PL_FILTER_CPP = ROOT / "src/core/filters/page_layout/Filter.cpp"
+PL_OPTIONS_H = ROOT / "src/core/filters/page_layout/OptionsWidget.h"
+PL_OPTIONS_CPP = ROOT / "src/core/filters/page_layout/OptionsWidget.cpp"
+PL_TASK_CPP = ROOT / "src/core/filters/page_layout/Task.cpp"
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
@@ -50,6 +55,179 @@ h = replace_once(
 )
 
 HDR.write_text(h, encoding="utf-8")
+
+# ---- Page Layout: route setup + no uniform-size normalization -------------
+# In route setup mode, margins are editable before Select Content has run.
+# During end-to-end processing, aggregate alignment (soft margins that make
+# every page share the largest final canvas) can be disabled without changing
+# the stored per-page alignment settings.
+
+pl_options_h = PL_OPTIONS_H.read_text(encoding="utf-8")
+pl_options_h = replace_once(
+    pl_options_h,
+    "    void postUpdateUI();\n\n"
+    "    bool leftRightLinked() const\n",
+    "    void postUpdateUI();\n\n"
+    "    void setRouteSetupMode(bool enabled);\n\n"
+    "    bool leftRightLinked() const\n",
+    "page_layout OptionsWidget route setup declaration",
+)
+pl_options_h = replace_once(
+    pl_options_h,
+    "    bool m_leftRightLinked;\n"
+    "    bool m_topBottomLinked;\n",
+    "    bool m_leftRightLinked;\n"
+    "    bool m_topBottomLinked;\n"
+    "    bool m_routeSetupMode;\n",
+    "page_layout OptionsWidget route setup member",
+)
+PL_OPTIONS_H.write_text(pl_options_h, encoding="utf-8")
+
+pl_options_cpp = PL_OPTIONS_CPP.read_text(encoding="utf-8")
+pl_options_cpp = replace_once(
+    pl_options_cpp,
+    "        m_ignoreMarginChanges(0),\n"
+    "        m_leftRightLinked(true),\n"
+    "        m_topBottomLinked(true)\n",
+    "        m_ignoreMarginChanges(0),\n"
+    "        m_leftRightLinked(true),\n"
+    "        m_topBottomLinked(true),\n"
+    "        m_routeSetupMode(false)\n",
+    "page_layout OptionsWidget constructor",
+)
+pl_options_cpp = replace_once(
+    pl_options_cpp,
+    "OptionsWidget::~OptionsWidget()\n"
+    "{\n"
+    "}\n\n"
+    "void\n"
+    "OptionsWidget::preUpdateUI(\n",
+    "OptionsWidget::~OptionsWidget()\n"
+    "{\n"
+    "}\n\n"
+    "void\n"
+    "OptionsWidget::setRouteSetupMode(bool const enabled)\n"
+    "{\n"
+    "    m_routeSetupMode = enabled;\n"
+    "    if (enabled) {\n"
+    "        marginsGroup->setEnabled(true);\n"
+    "        // Alignment is intentionally disabled in the through route:\n"
+    "        // it is the mechanism that normalizes every page to one canvas.\n"
+    "        alignmentGroup->setEnabled(false);\n"
+    "    }\n"
+    "}\n\n"
+    "void\n"
+    "OptionsWidget::preUpdateUI(\n",
+    "page_layout OptionsWidget route setup implementation",
+)
+pl_options_cpp = replace_once(
+    pl_options_cpp,
+    "    marginsGroup->setEnabled(false);\n"
+    "    alignmentGroup->setEnabled(false);\n",
+    "    marginsGroup->setEnabled(m_routeSetupMode);\n"
+    "    alignmentGroup->setEnabled(false);\n",
+    "page_layout OptionsWidget preUpdate state",
+)
+PL_OPTIONS_CPP.write_text(pl_options_cpp, encoding="utf-8")
+
+pl_filter_h = PL_FILTER_H.read_text(encoding="utf-8")
+pl_filter_h = replace_once(
+    pl_filter_h,
+    "    virtual void preUpdateUI(FilterUiInterface* ui, PageId const& page_id);\n\n"
+    "    virtual QDomElement saveSettings(\n",
+    "    virtual void preUpdateUI(FilterUiInterface* ui, PageId const& page_id);\n\n"
+    "    void setRouteSetupMode(bool enabled);\n\n"
+    "    void setAggregateAlignmentDisabled(bool disabled)\n"
+    "    {\n"
+    "        m_disableAggregateAlignment = disabled;\n"
+    "    }\n\n"
+    "    bool aggregateAlignmentDisabled() const\n"
+    "    {\n"
+    "        return m_disableAggregateAlignment;\n"
+    "    }\n\n"
+    "    virtual QDomElement saveSettings(\n",
+    "page_layout Filter route controls declaration",
+)
+pl_filter_h = replace_once(
+    pl_filter_h,
+    "    int m_selectedPageOrder;\n",
+    "    int m_selectedPageOrder;\n"
+    "    bool m_disableAggregateAlignment;\n",
+    "page_layout Filter aggregate member",
+)
+PL_FILTER_H.write_text(pl_filter_h, encoding="utf-8")
+
+pl_filter_cpp = PL_FILTER_CPP.read_text(encoding="utf-8")
+pl_filter_cpp = replace_once(
+    pl_filter_cpp,
+    "        m_ptrSettings(new Settings),\n"
+    "        m_selectedPageOrder(0)\n",
+    "        m_ptrSettings(new Settings),\n"
+    "        m_selectedPageOrder(0),\n"
+    "        m_disableAggregateAlignment(false)\n",
+    "page_layout Filter constructor",
+)
+pl_filter_cpp = replace_once(
+    pl_filter_cpp,
+    "void\n"
+    "Filter::preUpdateUI(FilterUiInterface* ui, PageId const& page_id)\n"
+    "{\n"
+    "    MarginsWithAuto const margins_mm(m_ptrSettings->getHardMarginsMM(page_id));\n"
+    "    Alignment const alignment(m_ptrSettings->getPageAlignment(page_id));\n"
+    "    m_ptrOptionsWidget->preUpdateUI(page_id, margins_mm, alignment);\n"
+    "    ui->setOptionsWidget(m_ptrOptionsWidget.get(), ui->KEEP_OWNERSHIP);\n"
+    "}\n\n"
+    "QDomElement\n",
+    "void\n"
+    "Filter::preUpdateUI(FilterUiInterface* ui, PageId const& page_id)\n"
+    "{\n"
+    "    MarginsWithAuto const margins_mm(m_ptrSettings->getHardMarginsMM(page_id));\n"
+    "    Alignment const alignment(m_ptrSettings->getPageAlignment(page_id));\n"
+    "    m_ptrOptionsWidget->preUpdateUI(page_id, margins_mm, alignment);\n"
+    "    ui->setOptionsWidget(m_ptrOptionsWidget.get(), ui->KEEP_OWNERSHIP);\n"
+    "}\n\n"
+    "void\n"
+    "Filter::setRouteSetupMode(bool const enabled)\n"
+    "{\n"
+    "    if (m_ptrOptionsWidget) {\n"
+    "        m_ptrOptionsWidget->setRouteSetupMode(enabled);\n"
+    "    }\n"
+    "}\n\n"
+    "QDomElement\n",
+    "page_layout Filter route setup implementation",
+)
+PL_FILTER_CPP.write_text(pl_filter_cpp, encoding="utf-8")
+
+pl_task_cpp = PL_TASK_CPP.read_text(encoding="utf-8")
+pl_task_cpp = replace_once(
+    pl_task_cpp,
+    "        QPolygonF const page_rect_phys(\n"
+    "            Utils::calcPageRectPhys(\n"
+    "                data.xform(), content_rect_phys,\n"
+    "                params, agg_hard_size_after\n"
+    "            )\n"
+    "        );\n",
+    "        QPolygonF page_rect_phys;\n"
+    "        if (m_ptrFilter->aggregateAlignmentDisabled()) {\n"
+    "            // End-to-end route: preserve hard margins, but don't add the\n"
+    "            // soft margins used to normalize every page to one canvas.\n"
+    "            Alignment route_alignment(params.alignment());\n"
+    "            route_alignment.setNull(true);\n"
+    "            Params const route_params(\n"
+    "                params.hardMarginsMM(), params.pageRect(), params.contentRect(),\n"
+    "                params.contentSizeMM(), route_alignment\n"
+    "            );\n"
+    "            page_rect_phys = Utils::calcPageRectPhys(\n"
+    "                data.xform(), content_rect_phys, route_params, agg_hard_size_after\n"
+    "            );\n"
+    "        } else {\n"
+    "            page_rect_phys = Utils::calcPageRectPhys(\n"
+    "                data.xform(), content_rect_phys, params, agg_hard_size_after\n"
+    "            );\n"
+    "        }\n",
+    "page_layout Task aggregate alignment bypass",
+)
+PL_TASK_CPP.write_text(pl_task_cpp, encoding="utf-8")
 
 # ---- MainWindow.cpp -------------------------------------------------------
 cpp = CPP.read_text(encoding="utf-8")
@@ -137,7 +315,7 @@ cpp = replace_once(
     "        }\n"
     "        StatusBarProvider::changeFilterIdx(m_curFilter);\n"
     "        if (QStatusBar* sb = statusBar()) {\n"
-    "            sb->showMessage(tr(\"Route setup mode: stage settings are editable without processing.\"));\n"
+    "            sb->showMessage(tr(\"Route setup mode: stage settings are editable without processing; uniform page sizing is disabled for the through route.\"));\n"
     "        }\n"
     "        return;\n"
     "    }\n"
@@ -391,7 +569,7 @@ replacement = """    <message>
     </message>
     <message>
         <source>Route setup mode: stage settings are editable without processing.</source>
-        <translation>Настройка маршрута: параметры этапов доступны без обработки.</translation>
+        <translation>Настройка маршрута: параметры этапов доступны без обработки; выравнивание всех страниц под единый размер отключено.</translation>
     </message>
     <message>
         <source>End-to-end processing: Split Pages -&gt; Deskew -&gt; Select Content -&gt; Page Layout -&gt; Output</source>
