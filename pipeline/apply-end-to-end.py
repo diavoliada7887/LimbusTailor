@@ -9,6 +9,11 @@ PL_FILTER_CPP = ROOT / "src/core/filters/page_layout/Filter.cpp"
 PL_OPTIONS_H = ROOT / "src/core/filters/page_layout/OptionsWidget.h"
 PL_OPTIONS_CPP = ROOT / "src/core/filters/page_layout/OptionsWidget.cpp"
 PL_TASK_CPP = ROOT / "src/core/filters/page_layout/Task.cpp"
+PS_SETTINGS_CPP = ROOT / "src/core/filters/page_split/Settings.cpp"
+OUT_SETTINGS_CPP = ROOT / "src/core/filters/output/Settings.cpp"
+OUT_OPTIONS_CPP = ROOT / "src/core/filters/output/OptionsWidget.cpp"
+OUT_NAME_H = ROOT / "src/core/OutputFileNameGenerator.h"
+OUT_NAME_CPP = ROOT / "src/core/OutputFileNameGenerator.cpp"
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
@@ -34,6 +39,14 @@ h = replace_once(
     "    void startThroughProcessing();\n\n"
     "    void stopBatchProcessing(MainAreaAction main_area = UPDATE_MAIN_AREA);\n",
     "MainWindow.h slots",
+)
+
+h = replace_once(
+    h,
+    "    void jumpToPage(int cnt, bool in_selection = false);\n",
+    "    void jumpToPage(int cnt, bool in_selection = false);\n"
+    "    void prepareArchiveOutputNames(PageSequence const& pages);\n",
+    "MainWindow.h archive output naming helper",
 )
 
 h = replace_once(
@@ -165,6 +178,51 @@ pl_options_cpp = replace_once(
     "    }\n",
     "page_layout force null alignment during route setup",
 )
+pl_options_cpp = replace_once(
+    pl_options_cpp,
+    "    m_marginsMM.setLeft(leftMarginSpinBox->value() * m_unitToMM);\n"
+    "    m_marginsMM.setRight(rightMarginSpinBox->value() * m_unitToMM);\n"
+    "\n"
+    "    emit marginsSetLocally(static_cast<Margins>(m_marginsMM));\n",
+    "    m_marginsMM.setLeft(leftMarginSpinBox->value() * m_unitToMM);\n"
+    "    m_marginsMM.setRight(rightMarginSpinBox->value() * m_unitToMM);\n"
+    "\n"
+    "    // LimbusTailor: the last operator-entered margins become the defaults\n"
+    "    // for the next project.  Only reusable settings are persisted; no\n"
+    "    // page geometry is copied between projects.\n"
+    "    QSettings margin_settings;\n"
+    "    margin_settings.setValue(_key_margins_default_left, m_marginsMM.left());\n"
+    "    margin_settings.setValue(_key_margins_default_right, m_marginsMM.right());\n"
+    "\n"
+    "    emit marginsSetLocally(static_cast<Margins>(m_marginsMM));\n",
+    "page_layout persist horizontal margins",
+)
+pl_options_cpp = replace_once(
+    pl_options_cpp,
+    "    m_marginsMM.setTop(topMarginSpinBox->value() * m_unitToMM);\n"
+    "    m_marginsMM.setBottom(bottomMarginSpinBox->value() * m_unitToMM);\n"
+    "\n"
+    "    emit marginsSetLocally(static_cast<Margins>(m_marginsMM));\n",
+    "    m_marginsMM.setTop(topMarginSpinBox->value() * m_unitToMM);\n"
+    "    m_marginsMM.setBottom(bottomMarginSpinBox->value() * m_unitToMM);\n"
+    "\n"
+    "    QSettings margin_settings;\n"
+    "    margin_settings.setValue(_key_margins_default_top, m_marginsMM.top());\n"
+    "    margin_settings.setValue(_key_margins_default_bottom, m_marginsMM.bottom());\n"
+    "\n"
+    "    emit marginsSetLocally(static_cast<Margins>(m_marginsMM));\n",
+    "page_layout persist vertical margins",
+)
+pl_options_cpp = replace_once(
+    pl_options_cpp,
+    "    m_marginsMM.setAutoMargins(checked);\n"
+    "    m_ptrSettings->setHardMarginsMM(m_pageId, m_marginsMM);\n",
+    "    m_marginsMM.setAutoMargins(checked);\n"
+    "    QSettings().setValue(_key_margins_auto_margins_default, checked);\n"
+    "    m_ptrSettings->setHardMarginsMM(m_pageId, m_marginsMM);\n",
+    "page_layout persist auto margins",
+)
+
 PL_OPTIONS_CPP.write_text(pl_options_cpp, encoding="utf-8")
 
 pl_filter_h = PL_FILTER_H.read_text(encoding="utf-8")
@@ -265,6 +323,339 @@ pl_task_cpp = replace_once(
     "page_layout Task aggregate alignment bypass",
 )
 PL_TASK_CPP.write_text(pl_task_cpp, encoding="utf-8")
+
+
+# ---- Reusable last-project profile ---------------------------------------
+# Keep operator-entered defaults across projects without copying page-specific
+# geometry.  Page Split remembers only its default layout type.  Output
+# remembers Params (DPI / color mode / thresholds / dewarping / despeckle).
+
+ps_settings_cpp = PS_SETTINGS_CPP.read_text(encoding="utf-8")
+ps_settings_cpp = replace_once(
+    ps_settings_cpp,
+    "#include <QMutexLocker>\n",
+    "#include <QMutexLocker>\n#include <QSettings>\n",
+    "page_split Settings QSettings include",
+)
+ps_settings_cpp = replace_once(
+    ps_settings_cpp,
+    "Settings::Settings()\n"
+    "    :   m_defaultLayoutType(AUTO_LAYOUT_TYPE)\n",
+    "Settings::Settings()\n"
+    "    :   m_defaultLayoutType(static_cast<LayoutType>(QSettings().value(\n"
+    "            \"limbustailor/last_profile/page_split_layout_type\",\n"
+    "            static_cast<int>(AUTO_LAYOUT_TYPE)\n"
+    "        ).toInt()))\n",
+    "page_split persistent default constructor",
+)
+ps_settings_cpp = replace_once(
+    ps_settings_cpp,
+    "    m_perPageRecords.clear();\n"
+    "    m_defaultLayoutType = AUTO_LAYOUT_TYPE;\n",
+    "    m_perPageRecords.clear();\n"
+    "    m_defaultLayoutType = static_cast<LayoutType>(QSettings().value(\n"
+    "        \"limbustailor/last_profile/page_split_layout_type\",\n"
+    "        static_cast<int>(AUTO_LAYOUT_TYPE)\n"
+    "    ).toInt());\n",
+    "page_split persistent default clear",
+)
+ps_settings_cpp = replace_once(
+    ps_settings_cpp,
+    "    m_defaultLayoutType = layout_type;\n"
+    "}\n",
+    "    m_defaultLayoutType = layout_type;\n"
+    "    QSettings().setValue(\n"
+    "        \"limbustailor/last_profile/page_split_layout_type\",\n"
+    "        static_cast<int>(layout_type)\n"
+    "    );\n"
+    "}\n",
+    "page_split remember default layout",
+)
+PS_SETTINGS_CPP.write_text(ps_settings_cpp, encoding="utf-8")
+
+out_settings_cpp = OUT_SETTINGS_CPP.read_text(encoding="utf-8")
+out_settings_cpp = replace_once(
+    out_settings_cpp,
+    "#include <QRegularExpression>\n",
+    "#include <QRegularExpression>\n#include <QSettings>\n#include <QDomDocument>\n",
+    "output Settings profile includes",
+)
+out_settings_cpp = replace_once(
+    out_settings_cpp,
+    "namespace output\n"
+    "{\n"
+    "\n"
+    "Settings::Settings()\n",
+    "namespace output\n"
+    "{\n"
+    "\n"
+    "namespace\n"
+    "{\n"
+    "const char* const kLastOutputParamsKey = \"limbustailor/last_profile/output_params_xml\";\n"
+    "\n"
+    "Params loadLastOutputParams()\n"
+    "{\n"
+    "    const QString xml = QSettings().value(kLastOutputParamsKey).toString();\n"
+    "    if (!xml.isEmpty()) {\n"
+    "        QDomDocument doc;\n"
+    "        if (doc.setContent(xml)) {\n"
+    "            QDomElement const root(doc.documentElement());\n"
+    "            if (!root.isNull() && root.tagName() == QLatin1String(\"params\")) {\n"
+    "                return Params(root);\n"
+    "            }\n"
+    "        }\n"
+    "    }\n"
+    "    return Params();\n"
+    "}\n"
+    "\n"
+    "void saveLastOutputParams(Params const& params)\n"
+    "{\n"
+    "    QDomDocument doc(QLatin1String(\"limbustailor-output-profile\"));\n"
+    "    doc.appendChild(params.toXml(doc, QLatin1String(\"params\")));\n"
+    "    QSettings().setValue(kLastOutputParamsKey, doc.toString(-1));\n"
+    "}\n"
+    "}\n"
+    "\n"
+    "Settings::Settings()\n",
+    "output Settings profile helpers",
+)
+out_settings_cpp = replace_once(
+    out_settings_cpp,
+    "    if (it != m_perPageParams.end()) {\n"
+    "        return it->second;\n"
+    "    } else {\n"
+    "        return Params();\n"
+    "    }\n",
+    "    if (it != m_perPageParams.end()) {\n"
+    "        return it->second;\n"
+    "    } else {\n"
+    "        return loadLastOutputParams();\n"
+    "    }\n",
+    "output Settings use last profile",
+)
+out_settings_cpp = replace_once(
+    out_settings_cpp,
+    "    QMutexLocker const locker(&m_mutex);\n"
+    "    Utils::mapSetValue(m_perPageParams, page_id, params);\n"
+    "}\n",
+    "    QMutexLocker const locker(&m_mutex);\n"
+    "    Utils::mapSetValue(m_perPageParams, page_id, params);\n"
+    "    saveLastOutputParams(params);\n"
+    "}\n",
+    "output Settings save last profile",
+)
+OUT_SETTINGS_CPP.write_text(out_settings_cpp, encoding="utf-8")
+
+# ---- Archive output name map ----------------------------------------------
+# OutputFileNameGenerator already owns the final extension decision.  Give it a
+# per-logical-page base-name map prepared by MainWindow before output tasks are
+# created.  This cleanly replaces _1L / _2R only when archive naming is enabled.
+
+out_name_h = OUT_NAME_H.read_text(encoding="utf-8")
+out_name_h = replace_once(
+    out_name_h,
+    '#include "FileNameDisambiguator.h"\n',
+    '#include "FileNameDisambiguator.h"\n#include "PageId.h"\n#include <map>\n',
+    "OutputFileNameGenerator archive map includes",
+)
+out_name_h = replace_once(
+    out_name_h,
+    "    QString fileNameFor(PageId const& page) const;\n"
+    "\n"
+    "    QString filePathFor(PageId const& page) const;\n",
+    "    void clearArchiveFileNames();\n"
+    "\n"
+    "    void setArchiveFileName(PageId const& page, QString const& base_name);\n"
+    "\n"
+    "    QString fileNameFor(PageId const& page) const;\n"
+    "\n"
+    "    QString filePathFor(PageId const& page) const;\n",
+    "OutputFileNameGenerator archive map API",
+)
+out_name_h = replace_once(
+    out_name_h,
+    "    Qt::LayoutDirection m_layoutDirection;\n"
+    "};\n",
+    "    Qt::LayoutDirection m_layoutDirection;\n"
+    "    std::map<PageId, QString> m_archiveFileNames;\n"
+    "};\n",
+    "OutputFileNameGenerator archive map member",
+)
+OUT_NAME_H.write_text(out_name_h, encoding="utf-8")
+
+out_name_cpp = OUT_NAME_CPP.read_text(encoding="utf-8")
+out_name_cpp = replace_once(
+    out_name_cpp,
+    "    m_ptrDisambiguator->performRelinking(relinker);\n"
+    "    m_outDir = relinker.substitutionPathFor(RelinkablePath(m_outDir, RelinkablePath::Dir));\n"
+    "}\n"
+    "\n"
+    "QString\n"
+    "OutputFileNameGenerator::fileNameFor(PageId const& page) const\n"
+    "{\n",
+    "    m_ptrDisambiguator->performRelinking(relinker);\n"
+    "    m_outDir = relinker.substitutionPathFor(RelinkablePath(m_outDir, RelinkablePath::Dir));\n"
+    "    m_archiveFileNames.clear();\n"
+    "}\n"
+    "\n"
+    "void\n"
+    "OutputFileNameGenerator::clearArchiveFileNames()\n"
+    "{\n"
+    "    m_archiveFileNames.clear();\n"
+    "}\n"
+    "\n"
+    "void\n"
+    "OutputFileNameGenerator::setArchiveFileName(PageId const& page, QString const& base_name)\n"
+    "{\n"
+    "    if (base_name.isEmpty()) {\n"
+    "        m_archiveFileNames.erase(page);\n"
+    "    } else {\n"
+    "        m_archiveFileNames[page] = base_name;\n"
+    "    }\n"
+    "}\n"
+    "\n"
+    "QString\n"
+    "OutputFileNameGenerator::fileNameFor(PageId const& page) const\n"
+    "{\n"
+    "    std::map<PageId, QString>::const_iterator const archive_it(m_archiveFileNames.find(page));\n"
+    "    if (archive_it != m_archiveFileNames.end()) {\n"
+    "        QString name(archive_it->second);\n"
+    "        const QString format = GlobalStaticSettings::m_output_image_format;\n"
+    "        if (format == QLatin1String(\"JPEG\") || format == QLatin1String(\"JPG\")) {\n"
+    "            name += QString::fromLatin1(\".jpg\");\n"
+    "        } else if (format == QLatin1String(\"PNG\")) {\n"
+    "            name += QString::fromLatin1(\".png\");\n"
+    "        } else {\n"
+    "            name += QString::fromLatin1(\".tif\");\n"
+    "        }\n"
+    "        return name;\n"
+    "    }\n"
+    "\n",
+    "OutputFileNameGenerator archive filename implementation",
+)
+OUT_NAME_CPP.write_text(out_name_cpp, encoding="utf-8")
+
+# ---- Archive naming controls in Output -----------------------------------
+out_options_cpp = OUT_OPTIONS_CPP.read_text(encoding="utf-8")
+out_options_cpp = replace_once(
+    out_options_cpp,
+    "#include <QPainter>\n",
+    "#include <QPainter>\n"
+    "#include <QGroupBox>\n"
+    "#include <QGridLayout>\n"
+    "#include <QCheckBox>\n"
+    "#include <QLineEdit>\n"
+    "#include <QSpinBox>\n"
+    "#include <QLabel>\n"
+    "#include <QBoxLayout>\n",
+    "output OptionsWidget archive naming includes",
+)
+out_options_cpp = replace_once(
+    out_options_cpp,
+    "    setDespeckleLevel(DESPECKLE_NORMAL);\n",
+    "    // LimbusTailor: archive output naming, modelled after the existing\n"
+    "    // SboeBoi / Oblegchazhka scheme: index + sheet + side.\n"
+    "    QGroupBox* const namingBox = new QGroupBox(tr(\"Archive file naming\"), this);\n"
+    "    QGridLayout* const namingLayout = new QGridLayout(namingBox);\n"
+    "    QCheckBox* const namingEnabled = new QCheckBox(tr(\"Use archive names\"), namingBox);\n"
+    "    QLineEdit* const namingIndex = new QLineEdit(namingBox);\n"
+    "    QLineEdit* const namingTemplate = new QLineEdit(namingBox);\n"
+    "    QSpinBox* const namingStart = new QSpinBox(namingBox);\n"
+    "    QSpinBox* const namingWidth = new QSpinBox(namingBox);\n"
+    "    QLineEdit* const namingFront = new QLineEdit(namingBox);\n"
+    "    QLineEdit* const namingBack = new QLineEdit(namingBox);\n"
+    "    QLabel* const namingPreview = new QLabel(namingBox);\n"
+    "\n"
+    "    namingStart->setRange(0, 9999999);\n"
+    "    namingWidth->setRange(1, 12);\n"
+    "    namingEnabled->setChecked(archiveSettings.value(\n"
+    "        \"limbustailor/archive_naming/enabled\", false\n"
+    "    ).toBool());\n"
+    "    namingIndex->setText(archiveSettings.value(\n"
+    "        \"limbustailor/archive_naming/index\", QString()\n"
+    "    ).toString());\n"
+    "    namingTemplate->setText(archiveSettings.value(\n"
+    "        \"limbustailor/archive_naming/template\", QStringLiteral(\"{индекс}_{лист}{сторона}\")\n"
+    "    ).toString());\n"
+    "    namingStart->setValue(archiveSettings.value(\n"
+    "        \"limbustailor/archive_naming/start\", 1\n"
+    "    ).toInt());\n"
+    "    namingWidth->setValue(archiveSettings.value(\n"
+    "        \"limbustailor/archive_naming/width\", 3\n"
+    "    ).toInt());\n"
+    "    namingFront->setText(archiveSettings.value(\n"
+    "        \"limbustailor/archive_naming/front\", QStringLiteral(\"_0\")\n"
+    "    ).toString());\n"
+    "    namingBack->setText(archiveSettings.value(\n"
+    "        \"limbustailor/archive_naming/back\", QStringLiteral(\"_1\")\n"
+    "    ).toString());\n"
+    "\n"
+    "    namingLayout->addWidget(namingEnabled, 0, 0, 1, 2);\n"
+    "    namingLayout->addWidget(new QLabel(tr(\"Case index:\"), namingBox), 1, 0);\n"
+    "    namingLayout->addWidget(namingIndex, 1, 1);\n"
+    "    namingLayout->addWidget(new QLabel(tr(\"Template:\"), namingBox), 2, 0);\n"
+    "    namingLayout->addWidget(namingTemplate, 2, 1);\n"
+    "    namingLayout->addWidget(new QLabel(tr(\"Start sheet:\"), namingBox), 3, 0);\n"
+    "    namingLayout->addWidget(namingStart, 3, 1);\n"
+    "    namingLayout->addWidget(new QLabel(tr(\"Digits:\"), namingBox), 4, 0);\n"
+    "    namingLayout->addWidget(namingWidth, 4, 1);\n"
+    "    namingLayout->addWidget(new QLabel(tr(\"Front suffix:\"), namingBox), 5, 0);\n"
+    "    namingLayout->addWidget(namingFront, 5, 1);\n"
+    "    namingLayout->addWidget(new QLabel(tr(\"Back suffix:\"), namingBox), 6, 0);\n"
+    "    namingLayout->addWidget(namingBack, 6, 1);\n"
+    "    namingLayout->addWidget(namingPreview, 7, 0, 1, 2);\n"
+    "\n"
+    "    if (QBoxLayout* const box = qobject_cast<QBoxLayout*>(layout())) {\n"
+    "        box->insertWidget(0, namingBox);\n"
+    "    } else if (layout()) {\n"
+    "        layout()->addWidget(namingBox);\n"
+    "    }\n"
+    "\n"
+    "    auto saveNaming = [=]() {\n"
+    "        QSettings s;\n"
+    "        s.setValue(\"limbustailor/archive_naming/enabled\", namingEnabled->isChecked());\n"
+    "        s.setValue(\"limbustailor/archive_naming/index\", namingIndex->text().trimmed());\n"
+    "        s.setValue(\"limbustailor/archive_naming/template\", namingTemplate->text());\n"
+    "        s.setValue(\"limbustailor/archive_naming/start\", namingStart->value());\n"
+    "        s.setValue(\"limbustailor/archive_naming/width\", namingWidth->value());\n"
+    "        s.setValue(\"limbustailor/archive_naming/front\", namingFront->text());\n"
+    "        s.setValue(\"limbustailor/archive_naming/back\", namingBack->text());\n"
+    "    };\n"
+    "    auto updateNamingPreview = [=]() {\n"
+    "        QString const sheet = QStringLiteral(\"%1\").arg(\n"
+    "            namingStart->value(), namingWidth->value(), 10, QLatin1Char('0')\n"
+    "        );\n"
+    "        auto render = [=](QString const& side) {\n"
+    "            QString name(namingTemplate->text());\n"
+    "            name.replace(QStringLiteral(\"{индекс}\"), namingIndex->text().trimmed());\n"
+    "            name.replace(QStringLiteral(\"{index}\"), namingIndex->text().trimmed());\n"
+    "            name.replace(QStringLiteral(\"{лист}\"), sheet);\n"
+    "            name.replace(QStringLiteral(\"{номер}\"), sheet);\n"
+    "            name.replace(QStringLiteral(\"{sheet}\"), sheet);\n"
+    "            name.replace(QStringLiteral(\"{сторона}\"), side);\n"
+    "            name.replace(QStringLiteral(\"{side}\"), side);\n"
+    "            return name;\n"
+    "        };\n"
+    "        namingPreview->setText(tr(\"First pair: %1 / %2\").arg(\n"
+    "            render(namingFront->text()), render(namingBack->text())\n"
+    "        ));\n"
+    "        namingBox->setToolTip(tr(\"Pages are named in natural order: front, back, next sheet.\"));\n"
+    "    };\n"
+    "\n"
+    "    connect(namingEnabled, &QCheckBox::toggled, this, [=](bool) { saveNaming(); updateNamingPreview(); });\n"
+    "    connect(namingIndex, &QLineEdit::textChanged, this, [=](QString const&) { saveNaming(); updateNamingPreview(); });\n"
+    "    connect(namingTemplate, &QLineEdit::textChanged, this, [=](QString const&) { saveNaming(); updateNamingPreview(); });\n"
+    "    connect(namingStart, QOverload<int>::of(&QSpinBox::valueChanged), this, [=](int) { saveNaming(); updateNamingPreview(); });\n"
+    "    connect(namingWidth, QOverload<int>::of(&QSpinBox::valueChanged), this, [=](int) { saveNaming(); updateNamingPreview(); });\n"
+    "    connect(namingFront, &QLineEdit::textChanged, this, [=](QString const&) { saveNaming(); updateNamingPreview(); });\n"
+    "    connect(namingBack, &QLineEdit::textChanged, this, [=](QString const&) { saveNaming(); updateNamingPreview(); });\n"
+    "    updateNamingPreview();\n"
+    "\n"
+    "    setDespeckleLevel(DESPECKLE_NORMAL);\n",
+    "output OptionsWidget archive naming controls",
+)
+OUT_OPTIONS_CPP.write_text(out_options_cpp, encoding="utf-8")
+
 
 # ---- MainWindow.cpp -------------------------------------------------------
 cpp = CPP.read_text(encoding="utf-8")
@@ -434,6 +825,65 @@ cpp = replace_once(
     "}\n"
     "\n"
     "void\n"
+    "MainWindow::prepareArchiveOutputNames(PageSequence const& pages)\n"
+    "{\n"
+    "    m_outFileNameGen.clearArchiveFileNames();\n"
+    "\n"
+    "    QSettings settings;\n"
+    "    if (!settings.value(\"limbustailor/archive_naming/enabled\", false).toBool()) {\n"
+    "        return;\n"
+    "    }\n"
+    "\n"
+    "    const QString index = settings.value(\n"
+    "        \"limbustailor/archive_naming/index\", QString()\n"
+    "    ).toString().trimmed();\n"
+    "    const QString naming_template = settings.value(\n"
+    "        \"limbustailor/archive_naming/template\", QStringLiteral(\"{индекс}_{лист}{сторона}\")\n"
+    "    ).toString();\n"
+    "    const int start = qMax(0, settings.value(\n"
+    "        \"limbustailor/archive_naming/start\", 1\n"
+    "    ).toInt());\n"
+    "    const int width = qBound(1, settings.value(\n"
+    "        \"limbustailor/archive_naming/width\", 3\n"
+    "    ).toInt(), 12);\n"
+    "    const QString front = settings.value(\n"
+    "        \"limbustailor/archive_naming/front\", QStringLiteral(\"_0\")\n"
+    "    ).toString();\n"
+    "    const QString back = settings.value(\n"
+    "        \"limbustailor/archive_naming/back\", QStringLiteral(\"_1\")\n"
+    "    ).toString();\n"
+    "\n"
+    "    int logical_index = 0;\n"
+    "    for (PageInfo const& page : pages) {\n"
+    "        const int sheet_no = start + logical_index / 2;\n"
+    "        const QString sheet = QStringLiteral(\"%1\").arg(\n"
+    "            sheet_no, width, 10, QLatin1Char('0')\n"
+    "        );\n"
+    "        const QString side = (logical_index % 2 == 0) ? front : back;\n"
+    "        QString base(naming_template);\n"
+    "        base.replace(QStringLiteral(\"{индекс}\"), index);\n"
+    "        base.replace(QStringLiteral(\"{index}\"), index);\n"
+    "        base.replace(QStringLiteral(\"{лист}\"), sheet);\n"
+    "        base.replace(QStringLiteral(\"{номер}\"), sheet);\n"
+    "        base.replace(QStringLiteral(\"{sheet}\"), sheet);\n"
+    "        base.replace(QStringLiteral(\"{сторона}\"), side);\n"
+    "        base.replace(QStringLiteral(\"{side}\"), side);\n"
+    "\n"
+    "        const QString invalid = QStringLiteral(\"\\\\/:*?\\\\"<>|\");\n"
+    "        for (QChar const ch : invalid) {\n"
+    "            base.replace(ch, QLatin1Char('_'));\n"
+    "        }\n"
+    "        while (base.endsWith(QLatin1Char(' ')) || base.endsWith(QLatin1Char('.'))) {\n"
+    "            base.chop(1);\n"
+    "        }\n"
+    "        if (!base.isEmpty()) {\n"
+    "            m_outFileNameGen.setArchiveFileName(page.id(), base);\n"
+    "        }\n"
+    "        ++logical_index;\n"
+    "    }\n"
+    "}\n"
+    "\n"
+    "void\n"
     "MainWindow::setRouteConfigurationMode(bool const enabled)\n"
     "{\n"
     "    if (enabled == m_routeConfigMode) {\n"
@@ -530,6 +980,7 @@ cpp = replace_once(
     "    // Output happens without returning control to the operator.\n"
     "    m_ptrBatchQueue.reset(new ProcessingTaskQueue(ProcessingTaskQueue::SEQUENTIAL_ORDER));\n"
     "    PageSequence const route_pages(m_ptrPages->toPageSequence(PAGE_VIEW));\n"
+    "    prepareArchiveOutputNames(route_pages);\n"
     "    bool started = process_all || selected_id.isNull();\n"
     "    int queued = 0;\n"
     "    for (PageInfo const& page : route_pages) {\n"
@@ -669,6 +1120,17 @@ cpp = replace_once(
 
 cpp = replace_once(
     cpp,
+    "    PageInfo start_page = processAll ? m_ptrThumbSequence->firstPage() : m_ptrThumbSequence->selectionLeader();\n",
+    "    if (m_curFilter == m_ptrStages->outputFilterIdx()) {\n"
+    "        prepareArchiveOutputNames(m_ptrPages->toPageSequence(PAGE_VIEW));\n"
+    "    }\n"
+    "\n"
+    "    PageInfo start_page = processAll ? m_ptrThumbSequence->firstPage() : m_ptrThumbSequence->selectionLeader();\n",
+    "MainWindow prepare archive names for normal Output batch",
+)
+
+cpp = replace_once(
+    cpp,
     "    if (m_throughProcessing) {\n"
     "        for (int idx = 0; idx < m_ptrStages->count(); ++idx) {\n",
     "    if (m_throughProcessing) {\n"
@@ -728,4 +1190,21 @@ replacement = """    <message>
 </context>"""
 
 ru = replace_once(ru, marker, replacement, "Russian MainWindow translations")
+ru = replace_once(
+    ru,
+    "    <name>output::OptionsWidget</name>\n",
+    "    <name>output::OptionsWidget</name>\n"
+    "    <message><source>Archive file naming</source><translation>Архивное именование файлов</translation></message>\n"
+    "    <message><source>Use archive names</source><translation>Использовать архивные имена</translation></message>\n"
+    "    <message><source>Case index:</source><translation>Индекс дела:</translation></message>\n"
+    "    <message><source>Template:</source><translation>Шаблон:</translation></message>\n"
+    "    <message><source>Start sheet:</source><translation>Начать с листа:</translation></message>\n"
+    "    <message><source>Digits:</source><translation>Знаков в номере:</translation></message>\n"
+    "    <message><source>Front suffix:</source><translation>Лицевая сторона:</translation></message>\n"
+    "    <message><source>Back suffix:</source><translation>Оборотная сторона:</translation></message>\n"
+    "    <message><source>First pair: %1 / %2</source><translation>Первая пара: %1 / %2</translation></message>\n"
+    "    <message><source>Pages are named in natural order: front, back, next sheet.</source><translation>Имена идут по естественному порядку: лицо, оборот, следующий лист.</translation></message>\n",
+    "Russian archive naming translations",
+)
+
 RU.write_text(ru, encoding="utf-8")
