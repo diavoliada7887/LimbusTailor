@@ -535,6 +535,68 @@ cpp = replace_once(
     "MainWindow.cpp stop through statistics",
 )
 
+
+# ---- Wire route mode into MainWindow --------------------------------------
+# The route-specific Page Layout behavior above is opt-in.  These switches
+# connect the MainWindow lifecycle to the filter without touching normal mode.
+
+cpp = replace_once(
+    cpp,
+    "        m_routeConfigPreviousFilter = m_curFilter;\n"
+    "        m_routeConfigMode = true;\n"
+    "        PageInfo const page(m_ptrThumbSequence->selectionLeader());\n",
+    "        m_routeConfigPreviousFilter = m_curFilter;\n"
+    "        m_routeConfigMode = true;\n"
+    "        m_ptrStages->pageLayoutFilter()->setRouteSetupMode(true);\n"
+    "        PageInfo const page(m_ptrThumbSequence->selectionLeader());\n",
+    "MainWindow enable Page Layout route setup",
+)
+
+cpp = replace_once(
+    cpp,
+    "    m_routeConfigMode = false;\n"
+    "    if (QStatusBar* sb = statusBar()) {\n",
+    "    m_routeConfigMode = false;\n"
+    "    m_ptrStages->pageLayoutFilter()->setRouteSetupMode(false);\n"
+    "    if (QStatusBar* sb = statusBar()) {\n",
+    "MainWindow disable Page Layout route setup",
+)
+
+cpp = replace_once(
+    cpp,
+    "    if (m_routeConfigMode) {\n"
+    "        m_routeConfigMode = false;\n"
+    "        if (m_routeConfigAction) {\n",
+    "    if (m_routeConfigMode) {\n"
+    "        m_routeConfigMode = false;\n"
+    "        m_ptrStages->pageLayoutFilter()->setRouteSetupMode(false);\n"
+    "        if (m_routeConfigAction) {\n",
+    "MainWindow leave route setup before through processing",
+)
+
+cpp = replace_once(
+    cpp,
+    "    const int output_idx = m_ptrStages->outputFilterIdx();\n"
+    "    PageId const selected_id(m_ptrThumbSequence->selectionLeader().id());\n",
+    "    const int output_idx = m_ptrStages->outputFilterIdx();\n"
+    "    PageId const selected_id(m_ptrThumbSequence->selectionLeader().id());\n"
+    "\n"
+    "    // End-to-end route: preserve each page's own content size + hard\n"
+    "    // margins.  Do not add soft margins to normalize to the largest page.\n"
+    "    m_ptrStages->pageLayoutFilter()->setAggregateAlignmentDisabled(true);\n",
+    "MainWindow disable aggregate alignment for through processing",
+)
+
+cpp = replace_once(
+    cpp,
+    "    if (m_throughProcessing) {\n"
+    "        for (int idx = 0; idx < m_ptrStages->count(); ++idx) {\n",
+    "    if (m_throughProcessing) {\n"
+    "        m_ptrStages->pageLayoutFilter()->setAggregateAlignmentDisabled(false);\n"
+    "        for (int idx = 0; idx < m_ptrStages->count(); ++idx) {\n",
+    "MainWindow restore aggregate alignment after through processing",
+)
+
 CPP.write_text(cpp, encoding="utf-8")
 
 # ---- Russian translation --------------------------------------------------
