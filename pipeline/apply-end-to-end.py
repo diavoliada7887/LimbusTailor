@@ -14,6 +14,9 @@ OUT_SETTINGS_CPP = ROOT / "src/core/filters/output/Settings.cpp"
 OUT_OPTIONS_CPP = ROOT / "src/core/filters/output/OptionsWidget.cpp"
 OUT_NAME_H = ROOT / "src/core/OutputFileNameGenerator.h"
 OUT_NAME_CPP = ROOT / "src/core/OutputFileNameGenerator.cpp"
+PL_SETTINGS_CPP = ROOT / "src/core/filters/page_layout/Settings.cpp"
+SC_PARAMS_CPP = ROOT / "src/core/filters/select_content/Params.cpp"
+SC_SETTINGS_CPP = ROOT / "src/core/filters/select_content/Settings.cpp"
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
@@ -225,6 +228,61 @@ pl_options_cpp = replace_once(
 
 PL_OPTIONS_CPP.write_text(pl_options_cpp, encoding="utf-8")
 
+
+# Persist Page Layout profile at the Settings layer as well.  This catches the
+# important case where an existing project is opened and its margins are never
+# edited before a new project is created.
+pl_settings_cpp = PL_SETTINGS_CPP.read_text(encoding="utf-8")
+pl_settings_cpp = replace_once(
+    pl_settings_cpp,
+    '#include "CommandLine.h"\n',
+    '#include "CommandLine.h"\n#include "settings/ini_keys.h"\n#include <QSettings>\n',
+    "page_layout Settings profile includes",
+)
+pl_settings_cpp = replace_once(
+    pl_settings_cpp,
+    "void\n"
+    "Settings::setPageParams(PageId const& page_id, Params const& params)\n"
+    "{\n"
+    "    return m_ptrImpl->setPageParams(page_id, params);\n"
+    "}\n",
+    "void\n"
+    "Settings::setPageParams(PageId const& page_id, Params const& params)\n"
+    "{\n"
+    "    MarginsWithAuto const& margins = params.hardMarginsMM();\n"
+    "    QSettings profile;\n"
+    "    profile.setValue(_key_margins_default_left, margins.left());\n"
+    "    profile.setValue(_key_margins_default_right, margins.right());\n"
+    "    profile.setValue(_key_margins_default_top, margins.top());\n"
+    "    profile.setValue(_key_margins_default_bottom, margins.bottom());\n"
+    "    profile.setValue(_key_margins_auto_margins_default, margins.isAutoMarginsEnabled());\n"
+    "    return m_ptrImpl->setPageParams(page_id, params);\n"
+    "}\n",
+    "page_layout remember loaded/processed margins",
+)
+pl_settings_cpp = replace_once(
+    pl_settings_cpp,
+    "void\n"
+    "Settings::setHardMarginsMM(PageId const& page_id, MarginsWithAuto const& margins_mm)\n"
+    "{\n"
+    "    m_ptrImpl->setHardMarginsMM(page_id, margins_mm);\n"
+    "}\n",
+    "void\n"
+    "Settings::setHardMarginsMM(PageId const& page_id, MarginsWithAuto const& margins_mm)\n"
+    "{\n"
+    "    QSettings profile;\n"
+    "    profile.setValue(_key_margins_default_left, margins_mm.left());\n"
+    "    profile.setValue(_key_margins_default_right, margins_mm.right());\n"
+    "    profile.setValue(_key_margins_default_top, margins_mm.top());\n"
+    "    profile.setValue(_key_margins_default_bottom, margins_mm.bottom());\n"
+    "    profile.setValue(_key_margins_auto_margins_default, margins_mm.isAutoMarginsEnabled());\n"
+    "    m_ptrImpl->setHardMarginsMM(page_id, margins_mm);\n"
+    "}\n",
+    "page_layout remember direct margins",
+)
+PL_SETTINGS_CPP.write_text(pl_settings_cpp, encoding="utf-8")
+
+
 pl_filter_h = PL_FILTER_H.read_text(encoding="utf-8")
 pl_filter_h = replace_once(
     pl_filter_h,
@@ -323,6 +381,112 @@ pl_task_cpp = replace_once(
     "page_layout Task aggregate alignment bypass",
 )
 PL_TASK_CPP.write_text(pl_task_cpp, encoding="utf-8")
+
+
+
+# ---- Select Content reusable profile --------------------------------------
+# Remember controls and page-detection borders, never content/page rectangles.
+# Loading an old project captures these settings automatically through
+# Settings::setPageParams(); fresh pages read them from Params(Dependencies).
+
+sc_params_cpp = SC_PARAMS_CPP.read_text(encoding="utf-8")
+sc_params_cpp = replace_once(
+    sc_params_cpp,
+    '#include "CommandLine.h"\n',
+    '#include "CommandLine.h"\n#include <QSettings>\n',
+    "select_content Params QSettings include",
+)
+sc_params_cpp = replace_once(
+    sc_params_cpp,
+    "Params::Params(Dependencies const& deps, const Dpi& dpi)\n"
+    "    :   RegenParams(),\n"
+    "        m_pageBorders(0, 0, 0, 0),\n"
+    "        m_deps(deps),\n"
+    "        m_mode(MODE_AUTO),\n"
+    "        m_deviation(0.0),\n"
+    "        m_Dpi(dpi)\n"
+    "{\n"
+    "    m_contentDetect = CommandLine::get().isContentDetectionEnabled();\n"
+    "    m_pageDetect = CommandLine::get().isPageDetectionEnabled();\n"
+    "    m_fineTuneCorners = CommandLine::get().isFineTuningEnabled();\n"
+    "}\n",
+    "Params::Params(Dependencies const& deps, const Dpi& dpi)\n"
+    "    :   RegenParams(),\n"
+    "        m_pageBorders(0, 0, 0, 0),\n"
+    "        m_deps(deps),\n"
+    "        m_mode(MODE_AUTO),\n"
+    "        m_deviation(0.0),\n"
+    "        m_Dpi(dpi)\n"
+    "{\n"
+    "    QSettings profile;\n"
+    "    m_contentDetect = profile.value(\n"
+    "        \"limbustailor/last_profile/select_content/content_detect\",\n"
+    "        CommandLine::get().isContentDetectionEnabled()\n"
+    "    ).toBool();\n"
+    "    m_pageDetect = profile.value(\n"
+    "        \"limbustailor/last_profile/select_content/page_detect\",\n"
+    "        CommandLine::get().isPageDetectionEnabled()\n"
+    "    ).toBool();\n"
+    "    m_fineTuneCorners = profile.value(\n"
+    "        \"limbustailor/last_profile/select_content/fine_tune\",\n"
+    "        CommandLine::get().isFineTuningEnabled()\n"
+    "    ).toBool();\n"
+    "    m_mode = profile.value(\n"
+    "        \"limbustailor/last_profile/select_content/mode\",\n"
+    "        static_cast<int>(MODE_AUTO)\n"
+    "    ).toInt() == static_cast<int>(MODE_MANUAL) ? MODE_MANUAL : MODE_AUTO;\n"
+    "    m_pageBorders.setLeft(profile.value(\n"
+    "        \"limbustailor/last_profile/select_content/border_left\", 0.0\n"
+    "    ).toDouble());\n"
+    "    m_pageBorders.setTop(profile.value(\n"
+    "        \"limbustailor/last_profile/select_content/border_top\", 0.0\n"
+    "    ).toDouble());\n"
+    "    m_pageBorders.setRight(profile.value(\n"
+    "        \"limbustailor/last_profile/select_content/border_right\", 0.0\n"
+    "    ).toDouble());\n"
+    "    m_pageBorders.setBottom(profile.value(\n"
+    "        \"limbustailor/last_profile/select_content/border_bottom\", 0.0\n"
+    "    ).toDouble());\n"
+    "}\n",
+    "select_content fresh params from last profile",
+)
+SC_PARAMS_CPP.write_text(sc_params_cpp, encoding="utf-8")
+
+sc_settings_cpp = SC_SETTINGS_CPP.read_text(encoding="utf-8")
+sc_settings_cpp = replace_once(
+    sc_settings_cpp,
+    '#include "CommandLine.h"\n',
+    '#include "CommandLine.h"\n#include <QSettings>\n',
+    "select_content Settings QSettings include",
+)
+sc_settings_cpp = replace_once(
+    sc_settings_cpp,
+    "void\n"
+    "Settings::setPageParams(PageId const& page_id, Params const& params)\n"
+    "{\n"
+    "    QMutexLocker locker(&m_mutex);\n"
+    "    Utils::mapSetValue(m_pageParams, page_id, params);\n"
+    "}\n",
+    "void\n"
+    "Settings::setPageParams(PageId const& page_id, Params const& params)\n"
+    "{\n"
+    "    QSettings profile;\n"
+    "    profile.setValue(\"limbustailor/last_profile/select_content/content_detect\", params.isContentDetectionEnabled());\n"
+    "    profile.setValue(\"limbustailor/last_profile/select_content/page_detect\", params.isPageDetectionEnabled());\n"
+    "    profile.setValue(\"limbustailor/last_profile/select_content/fine_tune\", params.isFineTuningEnabled());\n"
+    "    profile.setValue(\"limbustailor/last_profile/select_content/mode\", static_cast<int>(params.mode()));\n"
+    "    Margins const borders(params.pageBorders());\n"
+    "    profile.setValue(\"limbustailor/last_profile/select_content/border_left\", borders.left());\n"
+    "    profile.setValue(\"limbustailor/last_profile/select_content/border_top\", borders.top());\n"
+    "    profile.setValue(\"limbustailor/last_profile/select_content/border_right\", borders.right());\n"
+    "    profile.setValue(\"limbustailor/last_profile/select_content/border_bottom\", borders.bottom());\n"
+    "\n"
+    "    QMutexLocker locker(&m_mutex);\n"
+    "    Utils::mapSetValue(m_pageParams, page_id, params);\n"
+    "}\n",
+    "select_content remember reusable profile",
+)
+SC_SETTINGS_CPP.write_text(sc_settings_cpp, encoding="utf-8")
 
 
 # ---- Reusable last-project profile ---------------------------------------
@@ -653,6 +817,129 @@ out_options_cpp = replace_once(
     "\n"
     "    setDespeckleLevel(DESPECKLE_NORMAL);\n",
     "output OptionsWidget archive naming controls",
+)
+OUT_OPTIONS_CPP.write_text(out_options_cpp, encoding="utf-8")
+
+
+# Archive naming v2: the first logical page can be a back side (for example
+# 49_1 followed by 50_0).  Keep the choice persistent with the other naming
+# settings.
+out_options_cpp = OUT_OPTIONS_CPP.read_text(encoding="utf-8")
+out_options_cpp = replace_once(
+    out_options_cpp,
+    "#include <QBoxLayout>\n",
+    "#include <QBoxLayout>\n#include <QComboBox>\n",
+    "archive naming first-side include",
+)
+out_options_cpp = replace_once(
+    out_options_cpp,
+    "    QLineEdit* const namingBack = new QLineEdit(namingBox);\n"
+    "    QLabel* const namingPreview = new QLabel(namingBox);\n",
+    "    QLineEdit* const namingBack = new QLineEdit(namingBox);\n"
+    "    QComboBox* const namingFirstSide = new QComboBox(namingBox);\n"
+    "    QLabel* const namingPreview = new QLabel(namingBox);\n",
+    "archive naming first-side widget",
+)
+out_options_cpp = replace_once(
+    out_options_cpp,
+    "    namingBack->setText(archiveSettings.value(\n"
+    "        \"limbustailor/archive_naming/back\", QStringLiteral(\"_1\")\n"
+    "    ).toString());\n"
+    "\n"
+    "    namingLayout->addWidget(namingEnabled, 0, 0, 1, 2);\n",
+    "    namingBack->setText(archiveSettings.value(\n"
+    "        \"limbustailor/archive_naming/back\", QStringLiteral(\"_1\")\n"
+    "    ).toString());\n"
+    "    namingFirstSide->addItem(tr(\"Front\"), QStringLiteral(\"front\"));\n"
+    "    namingFirstSide->addItem(tr(\"Back\"), QStringLiteral(\"back\"));\n"
+    "    const QString firstSide = archiveSettings.value(\n"
+    "        \"limbustailor/archive_naming/first_side\", QStringLiteral(\"front\")\n"
+    "    ).toString().toLower();\n"
+    "    const int firstSideIndex = namingFirstSide->findData(firstSide);\n"
+    "    namingFirstSide->setCurrentIndex(firstSideIndex >= 0 ? firstSideIndex : 0);\n"
+    "\n"
+    "    namingLayout->addWidget(namingEnabled, 0, 0, 1, 2);\n",
+    "archive naming load first side",
+)
+out_options_cpp = replace_once(
+    out_options_cpp,
+    "    namingLayout->addWidget(new QLabel(tr(\"Back suffix:\"), namingBox), 6, 0);\n"
+    "    namingLayout->addWidget(namingBack, 6, 1);\n"
+    "    namingLayout->addWidget(namingPreview, 7, 0, 1, 2);\n",
+    "    namingLayout->addWidget(new QLabel(tr(\"Back suffix:\"), namingBox), 6, 0);\n"
+    "    namingLayout->addWidget(namingBack, 6, 1);\n"
+    "    namingLayout->addWidget(new QLabel(tr(\"First side:\"), namingBox), 7, 0);\n"
+    "    namingLayout->addWidget(namingFirstSide, 7, 1);\n"
+    "    namingLayout->addWidget(namingPreview, 8, 0, 1, 2);\n",
+    "archive naming first-side layout",
+)
+out_options_cpp = replace_once(
+    out_options_cpp,
+    "        s.setValue(\"limbustailor/archive_naming/back\", namingBack->text());\n"
+    "    };\n",
+    "        s.setValue(\"limbustailor/archive_naming/back\", namingBack->text());\n"
+    "        s.setValue(\"limbustailor/archive_naming/first_side\", namingFirstSide->currentData().toString());\n"
+    "    };\n",
+    "archive naming save first side",
+)
+out_options_cpp = replace_once(
+    out_options_cpp,
+    "    auto updateNamingPreview = [=]() {\n"
+    "        QString const sheet = QStringLiteral(\"%1\").arg(\n"
+    "            namingStart->value(), namingWidth->value(), 10, QLatin1Char('0')\n"
+    "        );\n"
+    "        auto render = [=](QString const& side) {\n"
+    "            QString name(namingTemplate->text());\n"
+    "            name.replace(QStringLiteral(\"{индекс}\"), namingIndex->text().trimmed());\n"
+    "            name.replace(QStringLiteral(\"{index}\"), namingIndex->text().trimmed());\n"
+    "            name.replace(QStringLiteral(\"{лист}\"), sheet);\n"
+    "            name.replace(QStringLiteral(\"{номер}\"), sheet);\n"
+    "            name.replace(QStringLiteral(\"{sheet}\"), sheet);\n"
+    "            name.replace(QStringLiteral(\"{сторона}\"), side);\n"
+    "            name.replace(QStringLiteral(\"{side}\"), side);\n"
+    "            return name;\n"
+    "        };\n"
+    "        namingPreview->setText(tr(\"First pair: %1 / %2\").arg(\n"
+    "            render(namingFront->text()), render(namingBack->text())\n"
+    "        ));\n"
+    "        namingBox->setToolTip(tr(\"Pages are named in natural order: front, back, next sheet.\"));\n"
+    "    };\n",
+    "    auto updateNamingPreview = [=]() {\n"
+    "        auto render = [=](int sheetNo, QString const& side) {\n"
+    "            QString const sheet = QStringLiteral(\"%1\").arg(\n"
+    "                sheetNo, namingWidth->value(), 10, QLatin1Char('0')\n"
+    "            );\n"
+    "            QString name(namingTemplate->text());\n"
+    "            name.replace(QStringLiteral(\"{индекс}\"), namingIndex->text().trimmed());\n"
+    "            name.replace(QStringLiteral(\"{index}\"), namingIndex->text().trimmed());\n"
+    "            name.replace(QStringLiteral(\"{лист}\"), sheet);\n"
+    "            name.replace(QStringLiteral(\"{номер}\"), sheet);\n"
+    "            name.replace(QStringLiteral(\"{sheet}\"), sheet);\n"
+    "            name.replace(QStringLiteral(\"{сторона}\"), side);\n"
+    "            name.replace(QStringLiteral(\"{side}\"), side);\n"
+    "            return name;\n"
+    "        };\n"
+    "        const bool firstBack = namingFirstSide->currentData().toString() == QLatin1String(\"back\");\n"
+    "        const QString firstName = render(\n"
+    "            namingStart->value(), firstBack ? namingBack->text() : namingFront->text()\n"
+    "        );\n"
+    "        const QString secondName = render(\n"
+    "            firstBack ? namingStart->value() + 1 : namingStart->value(),\n"
+    "            firstBack ? namingFront->text() : namingBack->text()\n"
+    "        );\n"
+    "        namingPreview->setText(tr(\"First files: %1 / %2\").arg(firstName, secondName));\n"
+    "        namingBox->setToolTip(tr(\"Pages are named by sheet and side in natural page order.\"));\n"
+    "    };\n",
+    "archive naming first-side preview",
+)
+out_options_cpp = replace_once(
+    out_options_cpp,
+    "    connect(namingBack, &QLineEdit::textChanged, this, [=](QString const&) { saveNaming(); updateNamingPreview(); });\n"
+    "    updateNamingPreview();\n",
+    "    connect(namingBack, &QLineEdit::textChanged, this, [=](QString const&) { saveNaming(); updateNamingPreview(); });\n"
+    "    connect(namingFirstSide, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [=](int) { saveNaming(); updateNamingPreview(); });\n"
+    "    updateNamingPreview();\n",
+    "archive naming first-side signal",
 )
 OUT_OPTIONS_CPP.write_text(out_options_cpp, encoding="utf-8")
 
@@ -1141,6 +1428,52 @@ cpp = replace_once(
     "MainWindow restore aggregate alignment after through processing",
 )
 
+
+
+# Archive naming v2 state machine.  A back-first sequence starts as:
+# start_1, (start+1)_0, (start+1)_1, ...
+cpp = replace_once(
+    cpp,
+    "    int logical_index = 0;\n"
+    "    for (PageInfo const& page : pages) {\n"
+    "        const int sheet_no = start + logical_index / 2;\n"
+    "        const QString sheet = QStringLiteral(\"%1\").arg(\n"
+    "            sheet_no, width, 10, QLatin1Char('0')\n"
+    "        );\n"
+    "        const QString side = (logical_index % 2 == 0) ? front : back;\n",
+    "    const QString first_side = settings.value(\n"
+    "        \"limbustailor/archive_naming/first_side\", QStringLiteral(\"front\")\n"
+    "    ).toString().toLower();\n"
+    "    int sheet_no = start;\n"
+    "    bool front_turn = first_side != QLatin1String(\"back\");\n"
+    "    for (PageInfo const& page : pages) {\n"
+    "        const QString sheet = QStringLiteral(\"%1\").arg(\n"
+    "            sheet_no, width, 10, QLatin1Char('0')\n"
+    "        );\n"
+    "        const QString side = front_turn ? front : back;\n",
+    "archive naming first-side state init",
+)
+cpp = replace_once(
+    cpp,
+    "        if (!base.isEmpty()) {\n"
+    "            m_outFileNameGen.setArchiveFileName(page.id(), base);\n"
+    "        }\n"
+    "        ++logical_index;\n"
+    "    }\n",
+    "        if (!base.isEmpty()) {\n"
+    "            m_outFileNameGen.setArchiveFileName(page.id(), base);\n"
+    "        }\n"
+    "        if (front_turn) {\n"
+    "            front_turn = false;\n"
+    "        } else {\n"
+    "            front_turn = true;\n"
+    "            ++sheet_no;\n"
+    "        }\n"
+    "    }\n",
+    "archive naming first-side state advance",
+)
+
+
 CPP.write_text(cpp, encoding="utf-8")
 
 # ---- Russian translation --------------------------------------------------
@@ -1207,6 +1540,19 @@ ru = replace_once(
     "    <message><source>First pair: %1 / %2</source><translation>Первая пара: %1 / %2</translation></message>\n"
     "    <message><source>Pages are named in natural order: front, back, next sheet.</source><translation>Имена идут по естественному порядку: лицо, оборот, следующий лист.</translation></message>\n",
     "Russian archive naming translations",
+)
+
+
+ru = replace_once(
+    ru,
+    "    <message><source>Back suffix:</source><translation>Оборотная сторона:</translation></message>\n",
+    "    <message><source>Back suffix:</source><translation>Оборотная сторона:</translation></message>\n"
+    "    <message><source>First side:</source><translation>Первая страница:</translation></message>\n"
+    "    <message><source>Front</source><translation>Лицевая</translation></message>\n"
+    "    <message><source>Back</source><translation>Оборотная</translation></message>\n"
+    "    <message><source>First files: %1 / %2</source><translation>Первые файлы: %1 / %2</translation></message>\n"
+    "    <message><source>Pages are named by sheet and side in natural page order.</source><translation>Имена назначаются по номеру листа и стороне в естественном порядке страниц.</translation></message>\n",
+    "Russian first-side naming translations",
 )
 
 RU.write_text(ru, encoding="utf-8")
