@@ -86,6 +86,12 @@ PL_OPTIONS_H.write_text(pl_options_h, encoding="utf-8")
 pl_options_cpp = PL_OPTIONS_CPP.read_text(encoding="utf-8")
 pl_options_cpp = replace_once(
     pl_options_cpp,
+    '#include "PageInfo.h"\n',
+    '#include "PageInfo.h"\n#include "PageSequence.h"\n',
+    "page_layout OptionsWidget PageSequence include",
+)
+pl_options_cpp = replace_once(
+    pl_options_cpp,
     "        m_ignoreMarginChanges(0),\n"
     "        m_leftRightLinked(true),\n"
     "        m_topBottomLinked(true)\n",
@@ -110,9 +116,26 @@ pl_options_cpp = replace_once(
     "{\n"
     "    m_routeSetupMode = enabled;\n"
     "    if (enabled) {\n"
+    "        // End-to-end archive route never aligns pages to each other.\n"
+    "        // Persist NULL alignment for all current pages so the checkbox\n"
+    "        // is visibly OFF and no later code path can add soft margins.\n"
+    "        PageSequence const pages(m_pageSelectionAccessor.allPages());\n"
+    "        for (PageInfo const& page : pages) {\n"
+    "            Alignment page_alignment(m_ptrSettings->getPageAlignment(page.id()));\n"
+    "            if (!page_alignment.isNull()) {\n"
+    "                page_alignment.setNull(true);\n"
+    "                m_ptrSettings->setPageAlignment(page.id(), page_alignment);\n"
+    "            }\n"
+    "        }\n"
+    "\n"
+    "        if (!m_pageId.isNull()) {\n"
+    "            m_alignment = m_ptrSettings->getPageAlignment(m_pageId);\n"
+    "            m_alignment.setNull(true);\n"
+    "            widgetAlignment->setAlignment(&m_alignment);\n"
+    "            displayAlignmentText();\n"
+    "        }\n"
+    "\n"
     "        marginsGroup->setEnabled(true);\n"
-    "        // Alignment is intentionally disabled in the through route:\n"
-    "        // it is the mechanism that normalizes every page to one canvas.\n"
     "        alignmentGroup->setEnabled(false);\n"
     "    }\n"
     "}\n\n"
@@ -127,6 +150,20 @@ pl_options_cpp = replace_once(
     "    marginsGroup->setEnabled(m_routeSetupMode);\n"
     "    alignmentGroup->setEnabled(false);\n",
     "page_layout OptionsWidget preUpdate state",
+)
+pl_options_cpp = replace_once(
+    pl_options_cpp,
+    "    m_pageId = page_id;\n"
+    "    m_marginsMM = margins_mm;\n"
+    "    m_alignment = alignment;\n",
+    "    m_pageId = page_id;\n"
+    "    m_marginsMM = margins_mm;\n"
+    "    m_alignment = alignment;\n"
+    "    if (m_routeSetupMode && !m_alignment.isNull()) {\n"
+    "        m_alignment.setNull(true);\n"
+    "        m_ptrSettings->setPageAlignment(page_id, m_alignment);\n"
+    "    }\n",
+    "page_layout force null alignment during route setup",
 )
 PL_OPTIONS_CPP.write_text(pl_options_cpp, encoding="utf-8")
 
