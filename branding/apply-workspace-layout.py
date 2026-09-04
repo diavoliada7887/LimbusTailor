@@ -20,6 +20,13 @@ def direct_property(item, name):
     raise RuntimeError(f"Property {name} not found on {item.get('name')}")
 
 
+def optional_direct_property(item, name):
+    for prop in item.findall("property"):
+        if prop.get("name") == name:
+            return prop
+    return None
+
+
 def set_size_property(item, name, width, height):
     prop = direct_property(item, name)
     size = prop.find("size")
@@ -31,6 +38,66 @@ def set_size_property(item, name, width, height):
         raise RuntimeError(f"Size property {name} has no width/height on {item.get('name')}")
     w.text = str(width)
     h.text = str(height)
+
+
+def direct_layout(item):
+    for child in item:
+        if child.tag == "layout":
+            return child
+    raise RuntimeError(f"Direct layout not found on {item.get('name')}")
+
+
+def set_number_property(layout, name, value):
+    prop = optional_direct_property(layout, name)
+    if prop is None:
+        prop = ET.Element("property", {"name": name})
+        number = ET.SubElement(prop, "number")
+        number.text = str(value)
+        first_item = next(
+            (idx for idx, child in enumerate(layout) if child.tag == "item"),
+            len(layout),
+        )
+        layout.insert(first_item, prop)
+        return
+
+    number = prop.find("number")
+    if number is None:
+        raise RuntimeError(f"Layout property {name} is not numeric")
+    number.text = str(value)
+
+
+def make_direct_spacers_horizontal(layout):
+    for item in layout.findall("item"):
+        spacer = item.find("spacer")
+        if spacer is None:
+            continue
+
+        orientation = optional_direct_property(spacer, "orientation")
+        if orientation is not None:
+            enum = orientation.find("enum")
+            if enum is not None and enum.text == "Qt::Vertical":
+                enum.text = "Qt::Horizontal"
+
+        size_hint = optional_direct_property(spacer, "sizeHint")
+        if size_hint is not None:
+            size = size_hint.find("size")
+            if size is not None:
+                width = size.find("width")
+                height = size.find("height")
+                if width is not None:
+                    width.text = "24"
+                if height is not None:
+                    height.text = "20"
+
+
+def compact_group(root, group_name):
+    group = root.find(f".//widget[@name='{group_name}']")
+    if group is None:
+        return
+    layout = direct_layout(group)
+    set_number_property(layout, "spacing", 4)
+    for prop_name in ("leftMargin", "topMargin", "rightMargin", "bottomMargin"):
+        set_number_property(layout, prop_name, 5)
 
 
 # Recompose the original ScanTailor three-pane workspace for LimbusTailor:
@@ -56,11 +123,9 @@ if filters_allowed is None or filters_area is None:
     raise RuntimeError("Filter dock placement metadata is missing")
 filters_allowed.text = "Qt::BottomDockWidgetArea"
 filters_area.text = "8"  # Qt::BottomDockWidgetArea
-set_size_property(filters_dock, "minimumSize", 0, 205)
+set_size_property(filters_dock, "minimumSize", 0, 225)
 
-# In a bottom dock the stage selector and the current stage settings belong
-# side-by-side. This keeps the centre image tall while giving controls a full
-# horizontal strip.
+# Stage selector and current-stage settings remain side-by-side in the bottom dock.
 filters_layout = filters_dock.find(".//layout[@name='verticalLayout_3']")
 if filters_layout is None:
     raise RuntimeError("Filter dock layout not found")
@@ -72,17 +137,67 @@ set_size_property(filter_list, "maximumSize", 235, 16777215)
 
 scroll_area = widget(root, "scrollArea")
 vertical_policy = direct_property(scroll_area, "verticalScrollBarPolicy").find("enum")
-if vertical_policy is None:
-    raise RuntimeError("Filter scroll area vertical policy is missing")
+horizontal_policy = direct_property(scroll_area, "horizontalScrollBarPolicy").find("enum")
+if vertical_policy is None or horizontal_policy is None:
+    raise RuntimeError("Filter scroll area policies are missing")
 vertical_policy.text = "Qt::ScrollBarAsNeeded"
+horizontal_policy.text = "Qt::ScrollBarAsNeeded"
 
 ET.indent(tree, space=" ", level=0)
 tree.write(UI_FILE, encoding="UTF-8", xml_declaration=True)
 
 
+# Upstream ScanTailor option widgets are tall narrow columns because they lived
+# on the right side. In LimbusTailor they live in a wide bottom strip, so the
+# logical cards of each stage must run left-to-right.
+option_ui_files = (
+    "src/core/filters/fix_orientation/ui/OrientationOptionsWidget.ui",
+    "src/core/filters/page_split/ui/PageSplitOptionsWidget.ui",
+    "src/core/filters/deskew/ui/DeskewOptionsWidget.ui",
+    "src/core/filters/select_content/ui/SelectContentOptionsWidget.ui",
+    "src/core/filters/page_layout/ui/PageLayoutOptionsWidget.ui",
+)
+
+for rel_path in option_ui_files:
+    path = ROOT / rel_path
+    if not path.exists():
+        raise RuntimeError(f"Options UI not found: {rel_path}")
+
+    option_tree = ET.parse(path)
+    option_root = option_tree.getroot()
+    form = option_root.find("widget")
+    if form is None:
+        raise RuntimeError(f"Root widget missing in {rel_path}")
+
+    layout = direct_layout(form)
+    if layout.get("class") != "QVBoxLayout":
+        raise RuntimeError(
+            f"Expected vertical root layout in {rel_path}, got {layout.get('class')}"
+        )
+
+    layout.set("class", "QHBoxLayout")
+    set_number_property(layout, "spacing", 10)
+    for prop_name in ("leftMargin", "topMargin", "rightMargin", "bottomMargin"):
+        set_number_property(layout, prop_name, 6)
+    make_direct_spacers_horizontal(layout)
+
+    # These are the two busiest stages in archive work. Reduce dead padding so
+    # their buttons stay visible without turning the bottom strip into a wall.
+    if rel_path.endswith("PageLayoutOptionsWidget.ui"):
+        compact_group(option_root, "marginsGroup")
+        compact_group(option_root, "alignmentGroup")
+    elif rel_path.endswith("SelectContentOptionsWidget.ui"):
+        compact_group(option_root, "gbPageBox")
+        compact_group(option_root, "groupBox")
+        compact_group(option_root, "scopeBox")
+
+    ET.indent(option_tree, space=" ", level=0)
+    option_tree.write(path, encoding="UTF-8", xml_declaration=True)
+
+
 # Qt restores the previous QMainWindow dock state from QSettings. Apply this
-# new workspace once per layout version so existing LimbusTailor users see the
-# redesign, then preserve any manual dock changes they make afterwards.
+# revision once so existing LimbusTailor users receive the wider bottom strip,
+# then preserve any manual dock changes afterwards.
 main_cpp = MAIN_CPP.read_text(encoding="utf-8")
 old = """    QByteArray arr = settings.value(_key_app_state).toByteArray();
     if (!arr.isEmpty()) {
@@ -99,21 +214,21 @@ new = """    QByteArray arr = settings.value(_key_app_state).toByteArray();
     const int limbusUiLayoutVersion = settings.value(
         QStringLiteral(\"limbustailor/ui_layout_version\"), 0
     ).toInt();
-    if (limbusUiLayoutVersion < 1) {
+    if (limbusUiLayoutVersion < 2) {
         addDockWidget(Qt::LeftDockWidgetArea, dockWidgetThumbnails);
         addDockWidget(Qt::BottomDockWidgetArea, dockWidget_4);
         resizeDocks(QList<QDockWidget*>() << dockWidgetThumbnails,
                     QList<int>() << 280, Qt::Horizontal);
         resizeDocks(QList<QDockWidget*>() << dockWidget_4,
-                    QList<int>() << 225, Qt::Vertical);
-        settings.setValue(QStringLiteral(\"limbustailor/ui_layout_version\"), 1);
+                    QList<int>() << 255, Qt::Vertical);
+        settings.setValue(QStringLiteral(\"limbustailor/ui_layout_version\"), 2);
     }
 
-    scrollArea->horizontalScrollBar()->setDisabled(true);
+    scrollArea->horizontalScrollBar()->setDisabled(false);
 """
 count = main_cpp.count(old)
 if count != 1:
     raise RuntimeError(f"MainWindow state restore marker expected once, got {count}")
 MAIN_CPP.write_text(main_cpp.replace(old, new, 1), encoding="utf-8")
 
-print("Applied LimbusTailor workspace layout v1: left page rail + bottom controls")
+print("Applied LimbusTailor workspace layout v2: horizontal bottom option cards")
