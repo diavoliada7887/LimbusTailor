@@ -40,11 +40,30 @@ def set_size_property(item, name, width, height):
     h.text = str(height)
 
 
+def set_geometry_height(item, height):
+    prop = optional_direct_property(item, "geometry")
+    if prop is None:
+        return
+    rect = prop.find("rect")
+    if rect is None:
+        return
+    h = rect.find("height")
+    if h is not None:
+        h.text = str(height)
+
+
 def direct_layout(item):
     for child in item:
         if child.tag == "layout":
             return child
     raise RuntimeError(f"Direct layout not found on {item.get('name')}")
+
+
+def optional_direct_layout(item):
+    for child in item:
+        if child.tag == "layout":
+            return child
+    return None
 
 
 def set_number_property(layout, name, value):
@@ -90,14 +109,43 @@ def make_direct_spacers_horizontal(layout):
                     height.text = "20"
 
 
+def make_direct_lines_vertical(layout):
+    for item in layout.findall("item"):
+        child = item.find("widget")
+        if child is None or child.get("class") != "Line":
+            continue
+        orientation = optional_direct_property(child, "orientation")
+        if orientation is None:
+            continue
+        enum = orientation.find("enum")
+        if enum is not None:
+            enum.text = "Qt::Vertical"
+
+
+def compact_layout(layout, spacing=4, margin=5):
+    set_number_property(layout, "spacing", spacing)
+    for prop_name in ("leftMargin", "topMargin", "rightMargin", "bottomMargin"):
+        set_number_property(layout, prop_name, margin)
+
+
 def compact_group(root, group_name):
     group = root.find(f".//widget[@name='{group_name}']")
     if group is None:
         return
     layout = direct_layout(group)
-    set_number_property(layout, "spacing", 4)
-    for prop_name in ("leftMargin", "topMargin", "rightMargin", "bottomMargin"):
-        set_number_property(layout, prop_name, 5)
+    compact_layout(layout)
+
+
+def compact_direct_children(layout):
+    for item in layout.findall("item"):
+        nested_layout = item.find("layout")
+        if nested_layout is not None:
+            compact_layout(nested_layout, spacing=4, margin=0)
+        child_widget = item.find("widget")
+        if child_widget is not None:
+            child_layout = optional_direct_layout(child_widget)
+            if child_layout is not None:
+                compact_layout(child_layout, spacing=4, margin=4)
 
 
 # Recompose the original ScanTailor three-pane workspace for LimbusTailor:
@@ -156,6 +204,7 @@ option_ui_files = (
     "src/core/filters/deskew/ui/DeskewOptionsWidget.ui",
     "src/core/filters/select_content/ui/SelectContentOptionsWidget.ui",
     "src/core/filters/page_layout/ui/PageLayoutOptionsWidget.ui",
+    "src/core/filters/output/ui/OutputOptionsWidget.ui",
 )
 
 for rel_path in option_ui_files:
@@ -176,13 +225,11 @@ for rel_path in option_ui_files:
         )
 
     layout.set("class", "QHBoxLayout")
-    set_number_property(layout, "spacing", 10)
-    for prop_name in ("leftMargin", "topMargin", "rightMargin", "bottomMargin"):
-        set_number_property(layout, prop_name, 6)
+    compact_layout(layout, spacing=10, margin=6)
     make_direct_spacers_horizontal(layout)
 
-    # These are the two busiest stages in archive work. Reduce dead padding so
-    # their buttons stay visible without turning the bottom strip into a wall.
+    # These are the two busiest geometry stages in archive work. Reduce dead
+    # padding so their action buttons stay visible in the bottom strip.
     if rel_path.endswith("PageLayoutOptionsWidget.ui"):
         compact_group(option_root, "marginsGroup")
         compact_group(option_root, "alignmentGroup")
@@ -190,14 +237,21 @@ for rel_path in option_ui_files:
         compact_group(option_root, "gbPageBox")
         compact_group(option_root, "groupBox")
         compact_group(option_root, "scopeBox")
+    elif rel_path.endswith("OutputOptionsWidget.ui"):
+        # Output used to be an 871px-tall right-side form. Treat every top-level
+        # section as a horizontal card and turn old horizontal separators into
+        # vertical dividers. The bottom dock can scroll sideways if needed.
+        set_geometry_height(form, 235)
+        make_direct_lines_vertical(layout)
+        compact_direct_children(layout)
 
     ET.indent(option_tree, space=" ", level=0)
     option_tree.write(path, encoding="UTF-8", xml_declaration=True)
 
 
 # Qt restores the previous QMainWindow dock state from QSettings. Apply this
-# revision once so existing LimbusTailor users receive the wider bottom strip,
-# then preserve any manual dock changes afterwards.
+# revision once so existing LimbusTailor users receive the current bottom-strip
+# geometry, then preserve any manual dock changes afterwards.
 main_cpp = MAIN_CPP.read_text(encoding="utf-8")
 old = """    QByteArray arr = settings.value(_key_app_state).toByteArray();
     if (!arr.isEmpty()) {
@@ -214,14 +268,14 @@ new = """    QByteArray arr = settings.value(_key_app_state).toByteArray();
     const int limbusUiLayoutVersion = settings.value(
         QStringLiteral(\"limbustailor/ui_layout_version\"), 0
     ).toInt();
-    if (limbusUiLayoutVersion < 2) {
+    if (limbusUiLayoutVersion < 3) {
         addDockWidget(Qt::LeftDockWidgetArea, dockWidgetThumbnails);
         addDockWidget(Qt::BottomDockWidgetArea, dockWidget_4);
         resizeDocks(QList<QDockWidget*>() << dockWidgetThumbnails,
                     QList<int>() << 280, Qt::Horizontal);
         resizeDocks(QList<QDockWidget*>() << dockWidget_4,
                     QList<int>() << 255, Qt::Vertical);
-        settings.setValue(QStringLiteral(\"limbustailor/ui_layout_version\"), 2);
+        settings.setValue(QStringLiteral(\"limbustailor/ui_layout_version\"), 3);
     }
 
     scrollArea->horizontalScrollBar()->setDisabled(false);
@@ -231,4 +285,4 @@ if count != 1:
     raise RuntimeError(f"MainWindow state restore marker expected once, got {count}")
 MAIN_CPP.write_text(main_cpp.replace(old, new, 1), encoding="utf-8")
 
-print("Applied LimbusTailor workspace layout v2: horizontal bottom option cards")
+print("Applied LimbusTailor workspace layout v3: horizontal output stage")

@@ -52,6 +52,7 @@ jobs:
           done
           python3 ../branding/apply-ui-overrides.py
           python3 ../pipeline/apply-end-to-end.py
+          python3 ../branding/apply-workspace-layout.py
           cp ../branding/arkhivum.qss src/stylesheets/arkhivum.qss
 
       - name: Configure

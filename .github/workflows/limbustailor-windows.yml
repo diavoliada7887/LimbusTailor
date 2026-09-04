@@ -121,11 +121,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path (Join-Path $portable 'translations') | Out-Null
           Get-ChildItem scantailor-build -Recurse -Filter *.qm | Copy-Item -Destination (Join-Path $portable 'translations') -Force
           Copy-Item 'scantailor-universal\src\stylesheets' (Join-Path $portable 'stylesheets') -Recurse -Force
-          Set-Content -Path (Join-Path $portable 'BUILD.txt') -Value "LimbusTailor 0.2.13-based fork`nWindows identity: LimbusTailor.exe / ProductName LimbusTailor / CompanyName Arkhivum`nFeatures: JPG/PNG/TIFF + per-side content safety margins + sparse-page protection + native white/black layout margins + content detection tuning + Arkhivum UI + RU localization + end-to-end route + persistent operator profile + back-first archive naming + left page rail + bottom settings workspace + modern UI typography`nBuilt from $env:GITHUB_SHA"
+          Copy-Item 'branding\SIGN-LIMBUS.cmd' (Join-Path $portable 'SIGN-LIMBUS.cmd') -Force
+          Set-Content -Path (Join-Path $portable 'BUILD.txt') -Value "LimbusTailor 0.2.13-based fork`nWindows identity: LimbusTailor.exe / ProductName LimbusTailor / CompanyName Arkhivum`nFeatures: JPG/PNG/TIFF + per-side content safety margins + sparse-page protection + native white/black layout margins + content detection tuning + Arkhivum UI + RU localization + end-to-end route + persistent operator profile + back-first archive naming + left page rail + horizontal bottom settings + horizontal Output stage + one-click local signer`nBuilt from $env:GITHUB_SHA"
 
       - name: Upload portable Windows build
         uses: actions/upload-artifact@v4
         with:
-          name: LimbusTailor-Windows-x64-UI-V1
+          name: LimbusTailor-Windows-x64-UI-V3
           path: LimbusTailor-portable
           if-no-files-found: error
