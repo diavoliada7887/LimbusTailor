@@ -19,7 +19,7 @@ config = CONFIG.read_text(encoding="utf-8")
 config = replace_once(
     config,
     '#define APPLICATION_NAME "Scan Tailor Universal"\n'
-    '#define ORGANIZATION_NAME "Scan Tailor"\n'
+    '#define ORGANIZATION_NAME APPLICATION_NAME\n'
     '#define ORGANIZATION_DOMAIN "github.com/trufanov-nok/scantailor-universal"',
     '#define APPLICATION_NAME "LimbusTailor"\n'
     '#define ORGANIZATION_NAME "Arkhivum"\n'
