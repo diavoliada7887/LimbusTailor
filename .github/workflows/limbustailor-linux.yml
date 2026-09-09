@@ -15,6 +15,7 @@ on:
     paths:
       - 'patches/**'
       - 'branding/**'
+      - 'pipeline/**'
       - '.github/workflows/limbustailor-linux.yml'
 
 jobs:
@@ -53,6 +54,7 @@ jobs:
           python3 ../branding/apply-ui-overrides.py
           python3 ../pipeline/apply-end-to-end.py
           python3 ../branding/apply-workspace-layout.py
+          python3 ../branding/apply-operator-profiles.py
           cp ../branding/arkhivum.qss src/stylesheets/arkhivum.qss
 
       - name: Configure
